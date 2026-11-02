@@ -230,64 +230,6 @@ export const LocalVideo: React.FC<LocalVideoProps> = ({
     return () => clearInterval(scanTimer);
   }, [hasRealStream, videoMuted, nsfwAutoBlurred, virtualCamBlocked, onNsfwAutoBan]);
 
-  // Real-Time Face Detection Gate (Must show face in camera to unlock Start / Next)
-  useEffect(() => {
-    if (videoMuted || virtualCamBlocked || nsfwAutoBlurred || !hasRealStream) {
-      setFaceDetected(false);
-      setFaceStatusReason(
-        videoMuted ? 'Turn on camera & show your face' : 'Show your face in the camera'
-      );
-      onFaceDetectedChange?.(false);
-      return;
-    }
-
-    let cancelled = false;
-    const checkFace = async () => {
-      const res = await detectHumanFaceInFrame(videoRef.current);
-      if (cancelled) return;
-      setFaceDetected(res.faceDetected);
-      setFaceStatusReason(res.reason);
-      onFaceDetectedChange?.(res.faceDetected);
-    };
-
-    checkFace();
-    const faceTimer = setInterval(checkFace, 700);
-    return () => {
-      cancelled = true;
-      clearInterval(faceTimer);
-    };
-  }, [hasRealStream, videoMuted, virtualCamBlocked, nsfwAutoBlurred, onFaceDetectedChange]);
-
-  // Check for covered/black camera frame every 4 seconds when real webcam is active
-  useEffect(() => {
-    if (!hasRealStream || videoMuted) {
-      setIsDarkFrameWarning(false);
-      return;
-    }
-
-    const probeCanvas = document.createElement('canvas');
-    probeCanvas.width = 32;
-    probeCanvas.height = 24;
-    const probeCtx = probeCanvas.getContext('2d');
-
-    const interval = setInterval(() => {
-      const video = videoRef.current;
-      if (!video || !probeCtx || video.readyState < 2) return;
-      try {
-        probeCtx.drawImage(video, 0, 0, 32, 24);
-        const pixels = probeCtx.getImageData(0, 0, 32, 24).data;
-        let totalLum = 0;
-        for (let i = 0; i < pixels.length; i += 4) {
-          totalLum += 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
-        }
-        const avgLum = totalLum / (pixels.length / 4);
-        setIsDarkFrameWarning(avgLum < 8);
-      } catch {}
-    }, 4000);
-
-    return () => clearInterval(interval);
-  }, [hasRealStream, videoMuted]);
-
   const handleSwitchCamera = () => {
     if (videoDevices.length <= 1) return;
     const currentIndex = videoDevices.findIndex((d) => d.deviceId === selectedDeviceId);
@@ -365,116 +307,27 @@ export const LocalVideo: React.FC<LocalVideoProps> = ({
         </div>
       )}
 
-      {/* Paused Video Overlay */}
-      {videoMuted && (
-        <div className="absolute inset-0 bg-slate-950 flex flex-col items-center justify-center p-4">
-          <div className="w-20 h-20 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 mb-3">
-            <VideoOff size={32} />
-          </div>
-          <span className="text-xs font-semibold text-slate-300">Camera Paused</span>
-          <span className="text-[11px] text-slate-500 mt-1">Click the camera icon to resume video</span>
-        </div>
-      )}
-
-      {/* Dark Frame / Covered Camera Warning */}
-      {isDarkFrameWarning && (
-        <div className="absolute top-12 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-lg bg-amber-500/95 text-slate-950 text-[11px] font-bold flex items-center gap-1.5 shadow-lg">
-          <AlertCircle size={14} />
-          <span>Your camera appears dark. Please keep your face visible!</span>
-        </div>
-      )}
-
-      {/* Top-Right Face Verification Status Badge */}
-      {!videoMuted && !nsfwAutoBlurred && (
-        <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5">
-          {faceDetected ? (
-            <div className="px-2.5 py-1 rounded-md bg-emerald-950/90 backdrop-blur-md border border-emerald-500/60 text-[10px] font-bold text-emerald-300 flex items-center gap-1 shadow-sm">
-              <ShieldCheck size={12} className="text-emerald-400" />
-              <span>Face Verified</span>
-            </div>
-          ) : (
-            <div className="px-2.5 py-1 rounded-md bg-amber-500/95 text-slate-950 text-[10px] font-extrabold flex items-center gap-1 shadow-md animate-pulse">
-              <AlertCircle size={12} />
-              <span>{faceStatusReason}</span>
-            </div>
-          )}
-          {streamError && (
-            <div className="hidden sm:flex px-2 py-1 rounded-md bg-slate-900/90 border border-slate-700 text-[10px] text-amber-400 items-center gap-1 shadow-sm">
-              <Camera size={11} />
-              <span>No Cam</span>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Local Video Top-Left Label */}
       <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
         <span className="px-2.5 py-1 rounded-md bg-slate-950/80 backdrop-blur-md border border-slate-700/80 text-[11px] font-bold text-white shadow-sm flex items-center gap-1.5">
-          <span className={`w-2 h-2 rounded-full ${faceDetected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+          <span className="w-2 h-2 rounded-full bg-emerald-400" />
           {userName}
         </span>
-        {micMuted && (
-          <span className="px-2 py-1 rounded-md bg-red-600/90 text-[10px] font-bold text-white shadow-sm flex items-center gap-1">
-            <MicOff size={11} /> Muted
-          </span>
-        )}
       </div>
 
-      {/* Local Video Floating Control Bar (Bottom Right) */}
+      {/* Local Video Floating Utility Bar (Camera Flip / Fullscreen only; Mic & Cam are strictly always ON) */}
       <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1.5 p-1 rounded-xl bg-slate-950/80 backdrop-blur-md border border-slate-800 shadow-xl">
-        {/* Toggle Mic */}
-        <button
-          onClick={onToggleMic}
-          className={`p-2 rounded-lg transition-colors ${
-            micMuted
-              ? 'bg-red-600 text-white hover:bg-red-500'
-              : 'text-slate-300 hover:text-white hover:bg-slate-800'
-          }`}
-          title={micMuted ? 'Unmute microphone (M)' : 'Mute microphone (M)'}
-          aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
-        >
-          {micMuted ? <MicOff size={16} /> : <Mic size={16} />}
-        </button>
-
-        {/* Toggle Video */}
-        <button
-          onClick={onToggleVideo}
-          className={`p-2 rounded-lg transition-colors ${
-            videoMuted
-              ? 'bg-red-600 text-white hover:bg-red-500'
-              : 'text-slate-300 hover:text-white hover:bg-slate-800'
-          }`}
-          title={videoMuted ? 'Turn on camera (V)' : 'Turn off camera (V)'}
-          aria-label={videoMuted ? 'Turn on camera' : 'Turn off camera'}
-        >
-          {videoMuted ? <VideoOff size={16} /> : <Video size={16} />}
-        </button>
-
-        {/* Switch Camera */}
+        {/* Switch Front / Back Camera (For Mobile Phones) */}
         {videoDevices.length > 1 && (
           <button
             onClick={handleSwitchCamera}
             className="p-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
-            title="Switch camera"
-            aria-label="Switch camera"
+            title="Switch front/back camera"
+            aria-label="Switch front/back camera"
           >
             <RefreshCw size={16} />
           </button>
         )}
-
-        {/* Blur toggle */}
-        <button
-          onClick={() => setBlurBackground((prev) => !prev)}
-          className={`p-2 rounded-lg transition-colors ${
-            blurBackground
-              ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
-              : 'text-slate-300 hover:text-white hover:bg-slate-800'
-          }`}
-          title={blurBackground ? 'Disable blur' : 'Enable blur background'}
-          aria-label="Blur background"
-        >
-          <Sparkles size={16} />
-        </button>
 
         {/* Fullscreen */}
         <button

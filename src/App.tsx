@@ -18,7 +18,7 @@ import {
 } from './utils/streamLogic.ts';
 import { WebRTCManager, PeerPartnerInfo } from './utils/webrtcManager.ts';
 import { sounds } from './utils/audioEffects.ts';
-import { captureVideoScreenshot } from './utils/securityGuard.ts';
+import { captureVideoScreenshot, detectHumanFaceInFrame } from './utils/securityGuard.ts';
 
 function detectUserCountry(): CountryInfo {
   try {
@@ -50,9 +50,9 @@ export default function App() {
   const [allowDemoBots, setAllowDemoBots] = useState<boolean>(false);
   const [micMuted, setMicMuted] = useState<boolean>(false);
   const [videoMuted, setVideoMuted] = useState<boolean>(false);
-  const [faceDetected, setFaceDetected] = useState<boolean>(false);
   const [likeCount, setLikeCount] = useState<number>(0);
   const [incomingLikeTrigger, setIncomingLikeTrigger] = useState<number>(0);
+  const [isMobileChatOpen, setIsMobileChatOpen] = useState<boolean>(false);
 
   const defaultGuestName = 'User';
 
@@ -315,28 +315,38 @@ export default function App() {
     [selectedCountry.code, userProfile?.name, userProfile?.email, defaultGuestName, myCountry, gender, allowDemoBots, connectDemoBot]
   );
 
-  const ensureAuthenticatedAndFaceVisible = (): boolean => {
+  const ensureCanStartOrNext = async (): Promise<boolean> => {
     if (!ageVerified || !isSignedIn) {
       setIsAuthModalOpen(true);
       return false;
     }
-    if (!faceDetected) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `face-${Date.now()}`,
-          sender: 'system',
-          text: '⚠️ Face Required: Please show your face clearly in the camera to click Start or Next.',
-          time: formatMessageTime(),
-        },
-      ]);
-      return false;
-    }
+
+    // Lenient check on click: only flag if camera is completely pitch-black / covered with tape
+    try {
+      const videoEl = document.querySelector('video') as HTMLVideoElement | null;
+      if (videoEl && videoEl.readyState >= 2) {
+        const check = await detectHumanFaceInFrame(videoEl);
+        if (!check.faceDetected) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `face-${Date.now()}`,
+              sender: 'system',
+              text: `⚠️ ${check.reason}`,
+              time: formatMessageTime(),
+            },
+          ]);
+          return false;
+        }
+      }
+    } catch {}
+
     return true;
   };
 
-  const handleStart = () => {
-    if (!ensureAuthenticatedAndFaceVisible()) return;
+  const handleStart = async () => {
+    const ok = await ensureCanStartOrNext();
+    if (!ok) return;
     setMessages((prev) => [
       ...prev,
       {
@@ -349,8 +359,9 @@ export default function App() {
     startMatchmaking();
   };
 
-  const handleNext = () => {
-    if (!ensureAuthenticatedAndFaceVisible()) return;
+  const handleNext = async () => {
+    const ok = await ensureCanStartOrNext();
+    if (!ok) return;
     // 1-Second Skip Flooding Rate Limiter (Anti-Bot Protection)
     const now = Date.now();
     if (now - lastSkipAtRef.current < 950) {
@@ -539,7 +550,8 @@ export default function App() {
       {/* 2. Main Stage: Video Feeds + ControlsDock + Text Chat */}
       <main className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden relative">
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
-          <div className="flex-1 grid grid-cols-1 grid-rows-2 sm:grid-rows-1 sm:grid-cols-2 bg-black min-h-0 overflow-hidden relative">
+          {/* On Mobile: 50% Top Stranger, 50% Bottom You; On Desktop: 50% Left Stranger, 50% Right You */}
+          <div className="flex-1 grid grid-cols-1 grid-rows-2 md:grid-rows-1 md:grid-cols-2 bg-black min-h-0 overflow-hidden relative">
             <RemoteVideo
               status={status}
               partner={partner}
@@ -551,7 +563,6 @@ export default function App() {
               allowDemoBots={allowDemoBots}
               onConnectDemoBotNow={connectDemoBot}
               onStart={handleStart}
-              faceDetected={faceDetected}
             />
 
             <LocalVideo
@@ -561,7 +572,6 @@ export default function App() {
               onToggleVideo={() => setVideoMuted((prev) => !prev)}
               onStreamReady={handleLocalStreamReady}
               onNsfwAutoBan={handleNsfwAutoBan}
-              onFaceDetectedChange={setFaceDetected}
               userName={userProfile?.name || defaultGuestName}
             />
           </div>
@@ -574,7 +584,7 @@ export default function App() {
             selectedCountry={selectedCountry}
             onSelectCountry={(country) => {
               setSelectedCountry(country);
-              if ((status === 'connected' || status === 'searching') && faceDetected) {
+              if (status === 'connected' || status === 'searching') {
                 startMatchmaking(country.code);
               }
             }}
@@ -582,11 +592,12 @@ export default function App() {
             onToggleGender={() => {
               setGender((prev) => (prev === 'guy' ? 'girl' : prev === 'girl' ? 'couple' : 'guy'));
             }}
-            faceDetected={faceDetected}
+            onToggleChat={() => setIsMobileChatOpen((prev) => !prev)}
           />
         </div>
 
-        <aside className="w-full md:w-80 lg:w-96 h-36 sm:h-44 md:h-full shrink-0 flex flex-col">
+        {/* Desktop Sidebar Chat (Hidden on Mobile) */}
+        <aside className="hidden md:flex md:w-80 lg:w-96 h-full shrink-0 flex-col">
           <ChatBox
             messages={messages}
             onSendMessage={handleSendMessage}
@@ -597,6 +608,37 @@ export default function App() {
             onOpenRules={() => setIsRulesModalOpen(true)}
           />
         </aside>
+
+        {/* Mobile Slide-Up Chat Drawer (When mobile user taps Chat icon) */}
+        {isMobileChatOpen && (
+          <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+            <div className="flex-1" onClick={() => setIsMobileChatOpen(false)} />
+            <div className="h-[52dvh] w-full bg-slate-950 border-t border-slate-700 rounded-t-2xl overflow-hidden flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-200">
+              <div className="p-2.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  💬 Live Chat {partner ? `· ${partner.name}` : ''}
+                </span>
+                <button
+                  onClick={() => setIsMobileChatOpen(false)}
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold"
+                >
+                  ✕ Close
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <ChatBox
+                  messages={messages}
+                  onSendMessage={handleSendMessage}
+                  onTypingChange={handleTypingChange}
+                  status={status}
+                  partner={partner}
+                  isTyping={isTyping}
+                  onOpenRules={() => setIsRulesModalOpen(true)}
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* 3. Mandatory Step 1 (18+ Age Check) -> Step 2 (Sign In / Login) Modal */}

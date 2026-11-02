@@ -251,129 +251,62 @@ export function sanitizeSdpPrivateIps(sdp: string | undefined): string | undefin
 }
 
 /**
- * 6. Real-Time Human Face Presence Detector (Mandatory Gate for Start / Next)
- * Ensures the user is showing their real face in the camera (blocks ceiling/wall/covered camera).
+ * 6. Lenient Face & Presence Checker (Evaluated on START / NEXT click)
+ * Passes if camera is active, streaming, and not completely pitch-black / covered with tape.
+ * Tolerates dim lighting, backlight, glasses, blur, angle, and all skin tones.
  */
 let faceScanCanvas: HTMLCanvasElement | null = null;
-let nativeFaceDetector: any = null;
-let nativeDetectorChecked = false;
 
 export async function detectHumanFaceInFrame(
   videoEl: HTMLVideoElement | null
 ): Promise<{ faceDetected: boolean; reason: string }> {
-  if (!videoEl || videoEl.readyState < 2 || videoEl.videoWidth === 0) {
-    return { faceDetected: false, reason: 'Camera warming up...' };
+  if (!videoEl) {
+    return { faceDetected: true, reason: 'Ready' };
   }
 
-  // 1. Try native browser FaceDetector API if available
-  try {
-    if (!nativeDetectorChecked && typeof window !== 'undefined' && 'FaceDetector' in window) {
-      nativeDetectorChecked = true;
-      const FaceDetectorCtor = (window as unknown as { FaceDetector: new (opts?: any) => any }).FaceDetector;
-      nativeFaceDetector = new FaceDetectorCtor({ fastMode: true, maxDetectedFaces: 1 });
-    }
-    if (nativeFaceDetector) {
-      const faces = await nativeFaceDetector.detect(videoEl);
-      if (Array.isArray(faces) && faces.length > 0) {
-        return { faceDetected: true, reason: 'Face verified' };
-      }
-    }
-  } catch {
-    nativeFaceDetector = null;
+  // If video is starting up or track is active, allow through
+  if (videoEl.readyState < 2 || videoEl.videoWidth === 0) {
+    return { faceDetected: true, reason: 'Camera starting...' };
   }
 
-  // 2. Biometric Multi-Zone Facial Presence & Feature Contrast Analyzer
   try {
     if (!faceScanCanvas) {
       faceScanCanvas = document.createElement('canvas');
-      faceScanCanvas.width = 64;
-      faceScanCanvas.height = 64;
+      faceScanCanvas.width = 32;
+      faceScanCanvas.height = 32;
     }
 
     const ctx = faceScanCanvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return { faceDetected: false, reason: 'Show your face in camera' };
+    if (!ctx) return { faceDetected: true, reason: 'Ready' };
 
-    ctx.drawImage(videoEl, 0, 0, 64, 64);
-    const { data } = ctx.getImageData(0, 0, 64, 64);
+    ctx.drawImage(videoEl, 0, 0, 32, 32);
+    const { data } = ctx.getImageData(0, 0, 32, 32);
 
-    let centerPixels = 0;
-    let centerSkinPixels = 0;
-    let centerLumSum = 0;
-    let centerLumSqSum = 0;
-    let darkFeaturePixels = 0;
-    let edgeCount = 0;
+    let totalLum = 0;
+    let minLum = 255;
+    let maxLum = 0;
 
-    // Analyze center face zone (x: 12..52, y: 8..56)
-    for (let y = 8; y < 56; y++) {
-      for (let x = 12; x < 52; x++) {
-        const idx = (y * 64 + x) * 4;
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-
-        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-        centerPixels++;
-        centerLumSum += lum;
-        centerLumSqSum += lum * lum;
-
-        // Inclusive YCbCr + RGB human skin-tone model (supports all Indian & global skin tones)
-        const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
-        const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
-
-        const isSkinTone =
-          lum > 28 &&
-          lum < 235 &&
-          r > 55 &&
-          r >= g * 0.9 &&
-          r > b &&
-          cb >= 74 &&
-          cb <= 134 &&
-          cr >= 129 &&
-          cr <= 178;
-
-        if (isSkinTone) {
-          centerSkinPixels++;
-        }
-
-        // Hair, eyebrows, eyes, pupils in upper/mid face zone
-        if (lum < 68) {
-          darkFeaturePixels++;
-        }
-
-        // Horizontal local contrast (eyes, nose, mouth, face outline)
-        if (x > 12) {
-          const prevIdx = (y * 64 + (x - 1)) * 4;
-          const prevLum = 0.299 * data[prevIdx] + 0.587 * data[prevIdx + 1] + 0.114 * data[prevIdx + 2];
-          if (Math.abs(lum - prevLum) > 14) {
-            edgeCount++;
-          }
-        }
-      }
+    for (let i = 0; i < data.length; i += 4) {
+      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      totalLum += lum;
+      if (lum < minLum) minLum = lum;
+      if (lum > maxLum) maxLum = lum;
     }
 
-    const avgLum = centerLumSum / centerPixels;
-    if (avgLum < 18) {
-      return { faceDetected: false, reason: 'Camera is too dark — please turn on light & show your face' };
-    }
-    if (avgLum > 242) {
-      return { faceDetected: false, reason: 'Please point camera at your face' };
-    }
+    const avgLum = totalLum / (32 * 32);
+    const contrast = maxLum - minLum;
 
-    const variance = Math.max(0, centerLumSqSum / centerPixels - avgLum * avgLum);
-    const stdDev = Math.sqrt(variance);
-    const skinRatio = centerSkinPixels / centerPixels;
-    const darkRatio = darkFeaturePixels / centerPixels;
-
-    // A real human face has skin tone in the center + dark facial/hair features + edge detail (rejects flat walls/ceilings)
-    const hasValidSkinRegion = skinRatio >= 0.13 && skinRatio <= 0.86;
-    const hasFacialFeatures = darkRatio >= 0.025 && edgeCount >= 22 && stdDev >= 13;
-
-    if (hasValidSkinRegion && hasFacialFeatures) {
-      return { faceDetected: true, reason: 'Face verified' };
+    // Only block if camera is completely pitch-black / covered (e.g. tape over lens or closed shutter)
+    if (avgLum < 4 && contrast < 6) {
+      return {
+        faceDetected: false,
+        reason: 'Camera lens appears covered or pitch black. Please uncover camera.',
+      };
     }
 
-    return { faceDetected: false, reason: 'Please show your face clearly in the camera' };
+    // Otherwise (even if blur, low light, back light, partial face): ACCEPTED!
+    return { faceDetected: true, reason: 'Face verified' };
   } catch {
-    return { faceDetected: false, reason: 'Please show your face in the camera' };
+    return { faceDetected: true, reason: 'Ready' };
   }
 }

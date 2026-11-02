@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Square, SkipForward, ChevronDown, Check, Search, Lock } from 'lucide-react';
+import { Play, Square, SkipForward, ChevronDown, Check, Search, MessageSquare } from 'lucide-react';
 import { COUNTRIES, CountryInfo, filterCountries } from '../utils/streamLogic.ts';
 
 interface ControlsDockProps {
@@ -11,7 +11,8 @@ interface ControlsDockProps {
   onSelectCountry: (country: CountryInfo) => void;
   gender: 'guy' | 'girl' | 'couple';
   onToggleGender: () => void;
-  faceDetected: boolean;
+  onToggleChat?: () => void;
+  unreadCount?: number;
 }
 
 export const ControlsDock: React.FC<ControlsDockProps> = ({
@@ -23,7 +24,8 @@ export const ControlsDock: React.FC<ControlsDockProps> = ({
   onSelectCountry,
   gender,
   onToggleGender,
-  faceDetected,
+  onToggleChat,
+  unreadCount = 0,
 }) => {
   const [showCountryModal, setShowCountryModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -55,61 +57,35 @@ export const ControlsDock: React.FC<ControlsDockProps> = ({
 
   return (
     <div className="relative flex items-center justify-center gap-2 p-2 sm:p-3 bg-slate-900 border-t border-slate-800 shrink-0 z-30">
-      {/* Action Buttons Cluster: Start/Next, Stop, State/Country, Gender */}
-      <div className="grid grid-cols-4 gap-1.5 sm:gap-2 w-full max-w-xl">
-        {/* 1. START / NEXT BUTTON (Requires Face Detection!) */}
+      {/* Action Buttons Cluster: Start/Next, Stop, State/Country, Gender, Mobile Chat */}
+      <div className="grid grid-cols-5 md:grid-cols-4 gap-1.5 sm:gap-2 w-full max-w-xl">
+        {/* 1. START / NEXT BUTTON (Always active & clickable!) */}
         {status === 'stopped' ? (
           <button
             onClick={onStart}
-            disabled={!faceDetected}
-            title={
-              faceDetected
-                ? 'Start live video call'
-                : 'Please show your face in the camera to click Start'
-            }
-            className={`flex flex-col items-center justify-center py-2 px-2 sm:py-2.5 sm:px-3 rounded-xl transition-all group ${
-              faceDetected
-                ? 'bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 active:translate-y-0.5 text-white shadow-lg shadow-emerald-950/40 border-b-4 border-emerald-700'
-                : 'bg-slate-800/80 text-amber-300 border-b-4 border-slate-950 cursor-not-allowed opacity-85'
-            }`}
+            title="Start live video call"
+            className="flex flex-col items-center justify-center py-2 px-1.5 sm:py-2.5 sm:px-3 rounded-xl bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 active:translate-y-0.5 text-white shadow-lg shadow-emerald-950/40 border-b-4 border-emerald-700 transition-all group"
           >
             <div className="flex items-center gap-1">
-              {faceDetected ? (
-                <Play size={16} className="fill-white shrink-0" />
-              ) : (
-                <Lock size={14} className="text-amber-400 shrink-0" />
-              )}
+              <Play size={16} className="fill-white shrink-0" />
               <span className="font-black text-xs sm:text-sm tracking-wide">START</span>
             </div>
             <span className="text-[9px] sm:text-[10px] opacity-90 truncate max-w-full">
-              {faceDetected ? 'Ready' : 'Show Face'}
+              [F2]
             </span>
           </button>
         ) : (
           <button
             onClick={onNext}
-            disabled={!faceDetected}
-            title={
-              faceDetected
-                ? 'Skip to next partner'
-                : 'Please show your face in the camera to click Next'
-            }
-            className={`flex flex-col items-center justify-center py-2 px-2 sm:py-2.5 sm:px-3 rounded-xl transition-all group ${
-              faceDetected
-                ? 'bg-gradient-to-b from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 active:translate-y-0.5 text-white shadow-lg shadow-blue-950/40 border-b-4 border-blue-800'
-                : 'bg-slate-800/80 text-amber-300 border-b-4 border-slate-950 cursor-not-allowed opacity-85'
-            }`}
+            title="Skip to next partner"
+            className="flex flex-col items-center justify-center py-2 px-1.5 sm:py-2.5 sm:px-3 rounded-xl bg-gradient-to-b from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 active:translate-y-0.5 text-white shadow-lg shadow-blue-950/40 border-b-4 border-blue-800 transition-all group"
           >
             <div className="flex items-center gap-1">
-              {faceDetected ? (
-                <SkipForward size={16} className="fill-white shrink-0" />
-              ) : (
-                <Lock size={14} className="text-amber-400 shrink-0" />
-              )}
+              <SkipForward size={16} className="fill-white shrink-0" />
               <span className="font-black text-xs sm:text-sm tracking-wide">NEXT</span>
             </div>
             <span className="text-[9px] sm:text-[10px] opacity-90 truncate max-w-full">
-              {faceDetected ? 'Skip' : 'Show Face'}
+              [F2 / Space]
             </span>
           </button>
         )}
@@ -118,7 +94,7 @@ export const ControlsDock: React.FC<ControlsDockProps> = ({
         <button
           onClick={onStop}
           disabled={status === 'stopped'}
-          className={`flex flex-col items-center justify-center py-2 px-2 sm:py-2.5 sm:px-3 rounded-xl transition-all ${
+          className={`flex flex-col items-center justify-center py-2 px-1.5 sm:py-2.5 sm:px-3 rounded-xl transition-all ${
             status === 'stopped'
               ? 'bg-slate-800/50 text-slate-500 border-b-4 border-slate-900 cursor-not-allowed opacity-50'
               : 'bg-gradient-to-b from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 active:translate-y-0.5 text-white shadow-lg shadow-red-950/40 border-b-4 border-red-900'
@@ -128,17 +104,17 @@ export const ControlsDock: React.FC<ControlsDockProps> = ({
             <Square size={15} className={status === 'stopped' ? '' : 'fill-white'} />
             <span className="font-black text-xs sm:text-sm tracking-wide">STOP</span>
           </div>
-          <span className="text-[9px] sm:text-[10px] opacity-80">Stop Call</span>
+          <span className="text-[9px] sm:text-[10px] opacity-80">[Esc]</span>
         </button>
 
         {/* 3. INDIA STATES / UT & COUNTRY FILTER BUTTON */}
         <button
           onClick={() => setShowCountryModal((prev) => !prev)}
-          className="flex flex-col items-center justify-center py-2 px-2 sm:py-2.5 sm:px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/80 active:translate-y-0.5 text-white shadow-md transition-all relative"
+          className="flex flex-col items-center justify-center py-2 px-1.5 sm:py-2.5 sm:px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/80 active:translate-y-0.5 text-white shadow-md transition-all relative"
         >
           <div className="flex items-center gap-1 max-w-full">
             <span className="text-sm sm:text-base leading-none shrink-0">{selectedCountry.flag}</span>
-            <span className="font-bold text-[11px] sm:text-xs truncate max-w-[54px] sm:max-w-[85px]">
+            <span className="font-bold text-[11px] sm:text-xs truncate max-w-[48px] sm:max-w-[85px]">
               {shortLocationName}
             </span>
             <ChevronDown size={11} className="text-slate-400 shrink-0" />
@@ -149,7 +125,7 @@ export const ControlsDock: React.FC<ControlsDockProps> = ({
         {/* 4. GENDER / IDENTITY SELECTOR BUTTON */}
         <button
           onClick={onToggleGender}
-          className="flex flex-col items-center justify-center py-2 px-2 sm:py-2.5 sm:px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/80 active:translate-y-0.5 text-white shadow-md transition-all"
+          className="flex flex-col items-center justify-center py-2 px-1.5 sm:py-2.5 sm:px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/80 active:translate-y-0.5 text-white shadow-md transition-all"
         >
           <div className="flex items-center gap-1">
             <span className="text-sm sm:text-base leading-none">{genderLabels[gender].emoji}</span>
@@ -157,6 +133,24 @@ export const ControlsDock: React.FC<ControlsDockProps> = ({
           </div>
           <span className="text-[9px] text-slate-400">I am</span>
         </button>
+
+        {/* 5. MOBILE CHAT TOGGLE BUTTON (Visible only on mobile screens) */}
+        {onToggleChat && (
+          <button
+            onClick={onToggleChat}
+            className="md:hidden flex flex-col items-center justify-center py-2 px-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/80 active:translate-y-0.5 text-white shadow-md transition-all relative"
+          >
+            <div className="relative flex items-center gap-1">
+              <MessageSquare size={16} className="text-amber-400" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1.5 -right-2 w-3.5 h-3.5 rounded-full bg-red-500 text-[9px] font-black text-white flex items-center justify-center">
+                  {unreadCount}
+                </span>
+              )}
+            </div>
+            <span className="text-[9px] text-slate-300 font-semibold mt-0.5">Chat</span>
+          </button>
+        )}
       </div>
 
       {/* State / Union Territory / Country Selection Modal Drawer */}

@@ -241,37 +241,21 @@ export const RemoteVideo: React.FC<RemoteVideoProps> = ({
 
       {/* Status Indicators & Overlays */}
       {status === 'stopped' && (
-        <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-xs flex flex-col items-center justify-center p-4 text-center z-10">
-          <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-slate-900/90 border border-slate-700/80 flex items-center justify-center mb-3 shadow-xl">
-            <UserX className="w-6 h-6 sm:w-8 sm:h-8 text-slate-400" />
+        <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-xs flex flex-col items-center justify-center p-4 text-center z-10">
+          <div className="w-14 h-14 rounded-full bg-slate-900/90 border border-slate-700/80 flex items-center justify-center mb-3 shadow-xl">
+            <UserX className="w-7 h-7 text-slate-400" />
           </div>
-          <h2 className="text-lg sm:text-xl font-bold text-white mb-1.5">Ready to Stream+</h2>
-          <p className="text-xs sm:text-sm text-slate-300 max-w-xs mb-3">
-            {faceDetected
-              ? 'Face verified! Tap START below to connect via live video call.'
-              : 'Please show your face clearly in the camera to unlock START.'}
+          <h2 className="text-xl font-bold text-white mb-1">Ready to Stream+</h2>
+          <p className="text-xs text-slate-300 max-w-xs mb-4">
+            Press <span className="text-emerald-400 font-semibold">START</span> or tap below to connect with strangers via live HD video call!
           </p>
           {onStart && (
             <button
               onClick={onStart}
-              disabled={!faceDetected}
-              className={`px-6 py-2.5 rounded-xl font-black text-sm flex items-center gap-2 shadow-lg transition-all ${
-                faceDetected
-                  ? 'bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white border-b-4 border-emerald-700 active:translate-y-0.5'
-                  : 'bg-slate-800/90 text-amber-300 border border-amber-500/40 cursor-not-allowed'
-              }`}
+              className="px-6 py-3 rounded-xl font-black text-sm flex items-center gap-2 shadow-xl bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white border-b-4 border-emerald-700 active:translate-y-0.5 transition-all"
             >
-              {faceDetected ? (
-                <>
-                  <Play size={16} className="fill-white" />
-                  <span>START VIDEO CALL</span>
-                </>
-              ) : (
-                <>
-                  <Lock size={15} />
-                  <span>SHOW FACE TO START</span>
-                </>
-              )}
+              <Play size={18} className="fill-white" />
+              <span>START VIDEO CALL</span>
             </button>
           )}
         </div>
