@@ -7,8 +7,6 @@ interface StreamHeaderProps {
   activeRooms?: number;
   soundEnabled: boolean;
   onToggleSound: () => void;
-  allowDemoBots: boolean;
-  onToggleDemoBots: () => void;
   onOpenAdminCctv: () => void;
   onOpenSeo: () => void;
   onOpenRules: () => void;
@@ -50,12 +48,6 @@ export const StreamHeader: React.FC<StreamHeaderProps> = ({
   activeRooms = 0,
   soundEnabled,
   onToggleSound,
-  allowDemoBots,
-  onToggleDemoBots,
-  onOpenAdminCctv,
-  onOpenSeo,
-  onOpenRules,
-  onOpenAuth,
   userProfile,
 }) => {
   return (
@@ -84,7 +76,7 @@ export const StreamHeader: React.FC<StreamHeaderProps> = ({
         </div>
       </div>
 
-      {/* Right: Mode Toggle, Sound, Rules & Profile (Admin CCTV is hidden unless logged in as Admin) */}
+      {/* Right: Sound, Rules, Admin & Profile */}
       <div className="flex items-center gap-2">
         {/* Only visible AFTER Admin logs in via the User Login page */}
         {userProfile?.isAdmin && (
@@ -109,26 +101,6 @@ export const StreamHeader: React.FC<StreamHeaderProps> = ({
             <span className="hidden md:inline">Google SEO</span>
           </button>
         )}
-
-        {/* Match Mode Toggle: Real Peers Only vs Solo Bot Fallback */}
-        <button
-          onClick={onToggleDemoBots}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
-            !allowDemoBots
-              ? 'bg-emerald-950/60 border-emerald-700/70 text-emerald-300 hover:bg-emerald-900/60'
-              : 'bg-slate-900 border-slate-700 text-amber-300 hover:bg-slate-800'
-          }`}
-          title={
-            !allowDemoBots
-              ? 'Real P2P Peers Only (Click to enable Demo Bot fallback when queue is empty)'
-              : 'Demo Bot Fallback Enabled (Click to switch to Real P2P Peers Only)'
-          }
-        >
-          {!allowDemoBots ? <Users size={14} /> : <Bot size={14} />}
-          <span className="hidden xl:inline">
-            {!allowDemoBots ? 'Real Peers Only' : 'Real + Bot Fallback'}
-          </span>
-        </button>
 
         {/* Sound toggle */}
         <button

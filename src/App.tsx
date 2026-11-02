@@ -11,9 +11,6 @@ import { AdminCctvView } from './components/AdminCctvView.tsx';
 import {
   COUNTRIES,
   CountryInfo,
-  StrangerProfile,
-  pickStranger,
-  getStrangerReply,
   formatMessageTime,
 } from './utils/streamLogic.ts';
 import { WebRTCManager, PeerPartnerInfo } from './utils/webrtcManager.ts';
@@ -37,7 +34,7 @@ function detectUserCountry(): CountryInfo {
 
 export default function App() {
   const [status, setStatus] = useState<'stopped' | 'searching' | 'connected'>('stopped');
-  const [partner, setPartner] = useState<PeerPartnerInfo | StrangerProfile | null>(null);
+  const [partner, setPartner] = useState<PeerPartnerInfo | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [selectedCountry, setSelectedCountry] = useState<CountryInfo>(COUNTRIES[0]);
   const [myCountry] = useState<CountryInfo>(() => detectUserCountry());
@@ -47,7 +44,6 @@ export default function App() {
   const [onlineCount, setOnlineCount] = useState<number>(1);
   const [activeRooms, setActiveRooms] = useState<number>(0);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
-  const [allowDemoBots, setAllowDemoBots] = useState<boolean>(false);
   const [micMuted, setMicMuted] = useState<boolean>(false);
   const [videoMuted, setVideoMuted] = useState<boolean>(false);
   const [likeCount, setLikeCount] = useState<number>(0);
@@ -89,7 +85,6 @@ export default function App() {
 
   const webrtcRef = useRef<WebRTCManager | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const botFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSkipAtRef = useRef<number>(0);
 
   // Regional SEO Landing Page Auto-Title & Country Filter (/tamil-video-chat, /india-random-chat, etc.)
@@ -110,55 +105,7 @@ export default function App() {
     }
   }, []);
 
-  const clearBotTimer = () => {
-    if (botFallbackTimerRef.current) {
-      clearTimeout(botFallbackTimerRef.current);
-      botFallbackTimerRef.current = null;
-    }
-  };
-
-  const connectDemoBot = useCallback(() => {
-    clearBotTimer();
-    webrtcRef.current?.stopChat();
-    const bot = pickStranger(selectedCountry.code, partner?.id);
-    setRemoteStream(null);
-    setPartner(bot);
-    setStatus('connected');
-    setLikeCount(0);
-    sounds.playConnect();
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `sys-${Date.now()}`,
-        sender: 'system',
-        text: `Connected with ${bot.name} from ${bot.country} ${bot.flag} (Demo Bot).`,
-        time: formatMessageTime(),
-      },
-    ]);
-
-    setTimeout(() => {
-      setIsTyping(true);
-      setTimeout(() => {
-        setIsTyping(false);
-        const greeting = bot.greetings[Math.floor(Math.random() * bot.greetings.length)];
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `bot-${Date.now()}`,
-            sender: 'stranger',
-            text: greeting,
-            time: formatMessageTime(),
-            name: bot.name,
-            flag: bot.flag,
-          },
-        ]);
-        sounds.playMessage();
-      }, 900);
-    }, 500);
-  }, [selectedCountry.code, partner?.id]);
-
-  // Initialize Real WebRTC + WebSocket Manager
+  // Initialize Real WebRTC + WebSocket Manager (100% Real P2P - No Bots)
   useEffect(() => {
     const manager = new WebRTCManager({
       onStatsUpdate: (stats) => {
@@ -172,19 +119,18 @@ export default function App() {
         setIsTyping(false);
       },
       onMatchFound: (peerPartner, role) => {
-        clearBotTimer();
         setPartner(peerPartner);
         setStatus('connected');
         setLikeCount(0);
         setIsTyping(false);
         sounds.playConnect();
 
-        setMessages((prev) => [
-          ...prev,
+        // Fresh chat message for the new matched peer (Refreshes chat on every new match)
+        setMessages([
           {
             id: `sys-${Date.now()}`,
             sender: 'system',
-            text: `Live WebRTC match! Connected with ${peerPartner.name} from ${peerPartner.country} ${peerPartner.flag} (${role}).`,
+            text: `Connected with ${peerPartner.name} from ${peerPartner.country} ${peerPartner.flag}. Say hi!`,
             time: formatMessageTime(),
           },
         ]);
@@ -193,7 +139,6 @@ export default function App() {
         setRemoteStream(stream);
       },
       onPartnerLeft: (reason) => {
-        clearBotTimer();
         setRemoteStream(null);
         setPartner(null);
         setIsTyping(false);
@@ -201,11 +146,10 @@ export default function App() {
 
         const label =
           reason === 'skipped'
-            ? 'Partner skipped to next chat. Re-entering queue...'
-            : 'Partner disconnected. Re-entering queue...';
+            ? 'Partner skipped to next chat. Finding next live person...'
+            : 'Partner disconnected. Finding next live person...';
 
-        setMessages((prev) => [
-          ...prev,
+        setMessages([
           {
             id: `sys-${Date.now()}`,
             sender: 'system',
@@ -247,10 +191,8 @@ export default function App() {
         setIncomingLikeTrigger(Date.now());
       },
       onErrorNotice: (message) => {
-        clearBotTimer();
         setStatus('stopped');
-        setMessages((prev) => [
-          ...prev,
+        setMessages([
           {
             id: `err-${Date.now()}`,
             sender: 'system',
@@ -268,7 +210,6 @@ export default function App() {
 
     webrtcRef.current = manager;
     return () => {
-      clearBotTimer();
       manager.destroy();
     };
   }, []);
@@ -285,7 +226,6 @@ export default function App() {
 
   const startMatchmaking = useCallback(
     (countryFilterCode: string = selectedCountry.code) => {
-      clearBotTimer();
       setRemoteStream(null);
       setPartner(null);
       setIsTyping(false);
@@ -305,14 +245,8 @@ export default function App() {
         gender,
         preferredCountry: countryFilterCode,
       });
-
-      if (allowDemoBots) {
-        botFallbackTimerRef.current = setTimeout(() => {
-          connectDemoBot();
-        }, 3500);
-      }
     },
-    [selectedCountry.code, userProfile?.name, userProfile?.email, defaultGuestName, myCountry, gender, allowDemoBots, connectDemoBot]
+    [selectedCountry.code, userProfile?.name, userProfile?.email, defaultGuestName, myCountry, gender]
   );
 
   const ensureCanStartOrNext = async (): Promise<boolean> => {
@@ -327,8 +261,7 @@ export default function App() {
       if (videoEl && videoEl.readyState >= 2) {
         const check = await detectHumanFaceInFrame(videoEl);
         if (!check.faceDetected) {
-          setMessages((prev) => [
-            ...prev,
+          setMessages([
             {
               id: `face-${Date.now()}`,
               sender: 'system',
@@ -347,12 +280,11 @@ export default function App() {
   const handleStart = async () => {
     const ok = await ensureCanStartOrNext();
     if (!ok) return;
-    setMessages((prev) => [
-      ...prev,
+    setMessages([
       {
         id: `sys-${Date.now()}`,
         sender: 'system',
-        text: 'Searching for a live WebRTC partner...',
+        text: 'Searching for a live partner...',
         time: formatMessageTime(),
       },
     ]);
@@ -365,26 +297,17 @@ export default function App() {
     // 1-Second Skip Flooding Rate Limiter (Anti-Bot Protection)
     const now = Date.now();
     if (now - lastSkipAtRef.current < 950) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `sys-${now}`,
-          sender: 'system',
-          text: '🛡️ Rate Limit: Please wait 1 second before clicking Next/Skip.',
-          time: formatMessageTime(),
-        },
-      ]);
       return;
     }
     lastSkipAtRef.current = now;
 
     sounds.playSkip();
-    setMessages((prev) => [
-      ...prev,
+    // Fresh/refreshed chat on every Next click:
+    setMessages([
       {
         id: `sys-${Date.now()}`,
         sender: 'system',
-        text: 'Skipped partner. Finding next person...',
+        text: 'Skipped. Finding next person...',
         time: formatMessageTime(),
       },
     ]);
@@ -392,19 +315,17 @@ export default function App() {
   };
 
   const handleStop = () => {
-    clearBotTimer();
     sounds.playSkip();
     webrtcRef.current?.stopChat();
     setStatus('stopped');
     setPartner(null);
     setRemoteStream(null);
     setIsTyping(false);
-    setMessages((prev) => [
-      ...prev,
+    setMessages([
       {
         id: `sys-${Date.now()}`,
         sender: 'system',
-        text: 'You stopped the chat. Press Start to connect again.',
+        text: 'You stopped the chat. Press START to connect again.',
         time: formatMessageTime(),
       },
     ]);
@@ -422,41 +343,19 @@ export default function App() {
     sounds.playMessage();
 
     if (status === 'connected' && partner) {
-      if ('greetings' in partner) {
-        setTimeout(() => {
-          setIsTyping(true);
-          setTimeout(() => {
-            setIsTyping(false);
-            const replyText = getStrangerReply(partner, text);
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `bot-${Date.now()}`,
-                sender: 'stranger',
-                text: replyText,
-                time: formatMessageTime(),
-                name: partner.name,
-                flag: partner.flag,
-              },
-            ]);
-            sounds.playMessage();
-          }, 1000);
-        }, 400);
-      } else {
-        webrtcRef.current?.sendChatMessage(text);
-      }
+      webrtcRef.current?.sendChatMessage(text);
     }
   };
 
   const handleTypingChange = (typing: boolean) => {
-    if (status === 'connected' && partner && !('greetings' in partner)) {
+    if (status === 'connected' && partner) {
       webrtcRef.current?.sendTyping(typing);
     }
   };
 
   const handleLike = () => {
     setLikeCount((prev) => prev + 1);
-    if (status === 'connected' && partner && !('greetings' in partner)) {
+    if (status === 'connected' && partner) {
       webrtcRef.current?.sendLike();
     }
   };
@@ -469,8 +368,7 @@ export default function App() {
     const screenshot = captureVideoScreenshot(activeTarget);
 
     webrtcRef.current?.reportPartner(reason, screenshot);
-    setMessages((prev) => [
-      ...prev,
+    setMessages([
       {
         id: `sys-${Date.now()}`,
         sender: 'system',
@@ -482,13 +380,11 @@ export default function App() {
   };
 
   const handleNsfwAutoBan = useCallback((reason: string, screenshot: string | null) => {
-    clearBotTimer();
     webrtcRef.current?.sendNsfwAutoBan(reason, screenshot);
     setStatus('stopped');
     setPartner(null);
     setRemoteStream(null);
-    setMessages((prev) => [
-      ...prev,
+    setMessages([
       {
         id: `nsfw-${Date.now()}`,
         sender: 'system',
@@ -517,12 +413,6 @@ export default function App() {
         if (status !== 'stopped') {
           handleStop();
         }
-      } else if (e.key === 'm' || e.key === 'M') {
-        e.preventDefault();
-        setMicMuted((prev) => !prev);
-      } else if (e.key === 'v' || e.key === 'V') {
-        e.preventDefault();
-        setVideoMuted((prev) => !prev);
       }
     };
 
@@ -538,8 +428,6 @@ export default function App() {
         activeRooms={activeRooms}
         soundEnabled={soundEnabled}
         onToggleSound={() => setSoundEnabled((prev) => !prev)}
-        allowDemoBots={allowDemoBots}
-        onToggleDemoBots={() => setAllowDemoBots((prev) => !prev)}
         onOpenAdminCctv={() => setIsAdminCctvOpen(true)}
         onOpenSeo={() => setIsSeoModalOpen(true)}
         onOpenRules={() => setIsRulesModalOpen(true)}
@@ -560,8 +448,6 @@ export default function App() {
               onLike={handleLike}
               likeCount={likeCount}
               incomingLikeTrigger={incomingLikeTrigger}
-              allowDemoBots={allowDemoBots}
-              onConnectDemoBotNow={connectDemoBot}
               onStart={handleStart}
             />
 

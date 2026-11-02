@@ -1,21 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Heart, AlertTriangle, Sparkles, UserX, Loader2, Radio, Play, Lock } from 'lucide-react';
-import { StrangerProfile } from '../utils/streamLogic.ts';
+import { Heart, AlertTriangle, Sparkles, UserX, Loader2, Radio, Play } from 'lucide-react';
 import { PeerPartnerInfo } from '../utils/webrtcManager.ts';
 import { StreamLogo } from './StreamHeader.tsx';
 
 interface RemoteVideoProps {
   status: 'stopped' | 'searching' | 'connected';
-  partner: PeerPartnerInfo | StrangerProfile | null;
+  partner: PeerPartnerInfo | null;
   remoteStream: MediaStream | null;
   onReport: () => void;
   onLike: () => void;
   likeCount: number;
   incomingLikeTrigger: number;
-  allowDemoBots: boolean;
-  onConnectDemoBotNow?: () => void;
   onStart?: () => void;
-  faceDetected?: boolean;
 }
 
 export const RemoteVideo: React.FC<RemoteVideoProps> = ({
@@ -26,14 +22,10 @@ export const RemoteVideo: React.FC<RemoteVideoProps> = ({
   onLike,
   likeCount,
   incomingLikeTrigger,
-  allowDemoBots,
-  onConnectDemoBotNow,
   onStart,
-  faceDetected = false,
 }) => {
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const noiseCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const streamCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [floatingLikes, setFloatingLikes] = useState<{ id: number; x: number }[]>([]);
 
   const spawnFloatingHeart = () => {
@@ -100,88 +92,6 @@ export const RemoteVideo: React.FC<RemoteVideoProps> = ({
     return () => clearInterval(interval);
   }, [status]);
 
-  // Simulated fallback canvas ONLY when connected to a Demo Bot (no real WebRTC remoteStream)
-  useEffect(() => {
-    let animId: number;
-    const canvas = streamCanvasRef.current;
-    if (!canvas || status !== 'connected' || remoteStream || !partner) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    canvas.width = 640;
-    canvas.height = 480;
-    let tick = 0;
-
-    const style = 'videoStyle' in partner ? partner.videoStyle : 'neon_studio';
-    const isFemale = partner.gender === 'female' || partner.gender === 'girl';
-
-    const renderStream = () => {
-      tick += 0.03;
-      const w = canvas.width;
-      const h = canvas.height;
-
-      const bgGrad = ctx.createLinearGradient(0, 0, w, h);
-      if (style === 'neon_studio') {
-        bgGrad.addColorStop(0, '#1a103c');
-        bgGrad.addColorStop(1, '#090814');
-      } else if (style === 'sunny_room') {
-        bgGrad.addColorStop(0, '#e2d4be');
-        bgGrad.addColorStop(1, '#948370');
-      } else if (style === 'gamer_setup') {
-        bgGrad.addColorStop(0, '#0f2027');
-        bgGrad.addColorStop(0.5, '#203a43');
-        bgGrad.addColorStop(1, '#2c5364');
-      } else {
-        bgGrad.addColorStop(0, '#2e1c2b');
-        bgGrad.addColorStop(1, '#110d18');
-      }
-      ctx.fillStyle = bgGrad;
-      ctx.fillRect(0, 0, w, h);
-
-      const swayX = Math.sin(tick * 0.7) * 4;
-      const swayY = Math.cos(tick * 1.1) * 3;
-      const breathe = Math.sin(tick * 1.5) * 2;
-      const centerX = w / 2 + swayX;
-      const centerY = h / 2 + 50 + swayY;
-
-      ctx.fillStyle = isFemale ? '#c05621' : '#2b6cb0';
-      ctx.beginPath();
-      ctx.ellipse(centerX, centerY + 130 + breathe, 140, 90, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = '#f6ad55';
-      ctx.fillRect(centerX - 24, centerY + 20, 48, 50);
-
-      ctx.fillStyle = '#fbd38d';
-      ctx.beginPath();
-      ctx.ellipse(centerX, centerY - 20, 65, 80, swayX * 0.01, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = isFemale ? '#4a2810' : '#1a202c';
-      ctx.beginPath();
-      ctx.arc(centerX, centerY - 40, 72, Math.PI * 0.8, Math.PI * 2.2);
-      ctx.fill();
-
-      ctx.fillStyle = '#2d3748';
-      ctx.beginPath();
-      ctx.arc(centerX - 22, centerY - 20, 7, 0, Math.PI * 2);
-      ctx.arc(centerX + 22, centerY - 20, 7, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.strokeStyle = '#c53030';
-      ctx.lineWidth = 3.5;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY + 10, 20, 0.15 * Math.PI, 0.85 * Math.PI);
-      ctx.stroke();
-
-      animId = requestAnimationFrame(renderStream);
-    };
-
-    renderStream();
-    return () => cancelAnimationFrame(animId);
-  }, [status, partner, remoteStream]);
-
   const isRealPeer = status === 'connected' && Boolean(remoteStream);
 
   return (
@@ -195,29 +105,18 @@ export const RemoteVideo: React.FC<RemoteVideoProps> = ({
         className={`w-full h-full object-cover ${isRealPeer ? 'block' : 'hidden'}`}
       />
 
-      {/* 2. DEMO BOT CANVAS (Only if connected to simulated bot when no human is in queue) */}
-      {status === 'connected' && !remoteStream && partner && (
-        <canvas id="stream-remote-canvas" ref={streamCanvasRef} className="w-full h-full object-cover" />
-      )}
-
-      {/* 3. ANALOG CRT STATIC NOISE (When stopped or searching) */}
+      {/* 2. ANALOG CRT STATIC NOISE (When stopped or searching) */}
       {status !== 'connected' && (
         <canvas ref={noiseCanvasRef} className="w-full h-full object-cover opacity-85" />
       )}
 
-      {/* Retro TV Watermark & IP Privacy Shield in Top-Left / Top-Right */}
+      {/* Retro TV Watermark & IP Privacy Shield */}
       <div className="absolute top-3 left-3 z-10 opacity-85 hover:opacity-100 transition-opacity pointer-events-none flex items-center gap-2">
         <StreamLogo size="sm" />
         {status === 'connected' && (
-          <span
-            className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 ${
-              isRealPeer
-                ? 'bg-emerald-500/90 text-slate-950'
-                : 'bg-amber-500/90 text-slate-950'
-            }`}
-          >
+          <span className="px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 bg-emerald-500/90 text-slate-950">
             <Radio size={11} />
-            {isRealPeer ? 'LIVE P2P + TURN' : 'DEMO BOT'}
+            LIVE P2P + TURN
           </span>
         )}
       </div>
@@ -247,7 +146,7 @@ export const RemoteVideo: React.FC<RemoteVideoProps> = ({
           </div>
           <h2 className="text-xl font-bold text-white mb-1">Ready to Stream+</h2>
           <p className="text-xs text-slate-300 max-w-xs mb-4">
-            Press <span className="text-emerald-400 font-semibold">START</span> or tap below to connect with strangers via live HD video call!
+            Press <span className="text-emerald-400 font-semibold">START</span> or tap below to connect with real strangers via live HD video call!
           </p>
           {onStart && (
             <button
@@ -268,17 +167,9 @@ export const RemoteVideo: React.FC<RemoteVideoProps> = ({
             <Sparkles className="w-5 h-5 text-emerald-400 absolute -top-1 -right-1" />
           </div>
           <h2 className="text-lg font-bold text-white mb-1">Searching for a live partner...</h2>
-          <p className="text-xs text-slate-300 mb-4">
-            Waiting for another user in the WebRTC matchmaking queue
+          <p className="text-xs text-slate-300">
+            Waiting for another real person in the matchmaking queue
           </p>
-          {!allowDemoBots && onConnectDemoBotNow && (
-            <button
-              onClick={onConnectDemoBotNow}
-              className="px-3.5 py-1.5 rounded-lg bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-amber-400 text-xs font-semibold transition-colors shadow-md"
-            >
-              Testing solo? Connect with a Demo Bot now
-            </button>
-          )}
         </div>
       )}
 
@@ -292,7 +183,6 @@ export const RemoteVideo: React.FC<RemoteVideoProps> = ({
             <div className="flex flex-col">
               <span className="text-xs font-bold text-white leading-tight">
                 {partner.name}
-                {'age' in partner ? `, ${partner.age}` : ''}
               </span>
               <span className="text-[10px] text-slate-300 leading-tight">
                 {partner.country}
