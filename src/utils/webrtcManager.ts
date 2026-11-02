@@ -263,6 +263,19 @@ export class WebRTCManager {
           break;
         }
 
+        case 'admin_force_mute': {
+          const isMuted = Boolean(data.muted);
+          if (this.localStream) {
+            this.localStream.getAudioTracks().forEach((track) => {
+              track.enabled = !isMuted;
+            });
+          }
+          this.callbacks.onErrorNotice(
+            data.message || (isMuted ? '🔇 Microphone muted by Admin' : '🔊 Microphone unmuted by Admin')
+          );
+          break;
+        }
+
         case 'error_notice': {
           this.log('error', data.message || 'Server error notice');
           this.callbacks.onErrorNotice(data.message || 'An error occurred');
@@ -556,6 +569,10 @@ export class WebRTCManager {
         frame,
       });
     }
+  }
+
+  public getMyUserId(): string {
+    return this.myUserId;
   }
 
   public destroy() {

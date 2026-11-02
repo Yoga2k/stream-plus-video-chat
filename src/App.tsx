@@ -218,6 +218,33 @@ export default function App() {
     sounds.enabled = soundEnabled;
   }, [soundEnabled]);
 
+  // Periodically send low-res CCTV preview frame so Admin Dashboard can see live user videos
+  useEffect(() => {
+    if (!localStreamState) return;
+
+    let canvas: HTMLCanvasElement | null = null;
+    const frameTimer = setInterval(() => {
+      try {
+        const vid = document.getElementById('stream-local-video') as HTMLVideoElement | null;
+        if (vid && vid.readyState >= 2 && vid.videoWidth > 0) {
+          if (!canvas) {
+            canvas = document.createElement('canvas');
+            canvas.width = 240;
+            canvas.height = 180;
+          }
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(vid, 0, 0, 240, 180);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.45);
+            webrtcRef.current?.sendCctvFrame(dataUrl);
+          }
+        }
+      } catch {}
+    }, 2000);
+
+    return () => clearInterval(frameTimer);
+  }, [localStreamState]);
+
   const handleLocalStreamReady = useCallback((stream: MediaStream | null) => {
     localStreamRef.current = stream;
     setLocalStreamState(stream);
@@ -561,7 +588,7 @@ export default function App() {
         onlineCount={onlineCount}
       />
 
-      {/* 4. Admin 1,000-User CCTV Security Monitor (10 Users / Page) */}
+      {/* 4. Admin Dashboard (V2 Simple) */}
       <AdminCctvView
         isOpen={isAdminCctvOpen}
         onClose={() => setIsAdminCctvOpen(false)}
@@ -575,6 +602,7 @@ export default function App() {
         }}
         localStream={localStreamState}
         currentUserName={userProfile?.name || defaultGuestName}
+        myUserId={webrtcRef.current?.getMyUserId() || ''}
       />
 
       {/* 5. Google Search Engine & SEO Audit Modal */}

@@ -31,10 +31,19 @@ export interface StoredReportEvidence {
   autoBanned: boolean;
 }
 
+export interface BannedDeviceEntry {
+  id: string;
+  fingerprint: string;
+  email?: string;
+  reason: string;
+  bannedAt: string;
+}
+
 interface PersistentDbSchema {
   accounts: Record<string, StoredAccount>;
   bannedFingerprints: string[];
   bannedEmails: string[];
+  bannedList?: BannedDeviceEntry[];
   reports: StoredReportEvidence[];
   updatedAt: string;
 }
@@ -43,6 +52,7 @@ export class StreamPlusDatabase {
   private accounts = new Map<string, StoredAccount>();
   private bannedFingerprints = new Set<string>();
   private bannedEmails = new Set<string>();
+  private bannedList: BannedDeviceEntry[] = [];
   private reports: StoredReportEvidence[] = [];
   private mongoConnected = false;
   private mongoClient: any = null;
@@ -80,6 +90,9 @@ export class StreamPlusDatabase {
       if (Array.isArray(parsed.reports)) {
         this.reports = parsed.reports.slice(0, 100);
       }
+      if (Array.isArray(parsed.bannedList)) {
+        this.bannedList = parsed.bannedList;
+      }
     } catch {}
   }
 
@@ -94,6 +107,7 @@ export class StreamPlusDatabase {
         accounts: accountsObj,
         bannedFingerprints: Array.from(this.bannedFingerprints),
         bannedEmails: Array.from(this.bannedEmails),
+        bannedList: this.bannedList.slice(0, 500),
         reports: this.reports.slice(0, 100),
         updatedAt: new Date().toISOString(),
       };
@@ -198,6 +212,25 @@ export class StreamPlusDatabase {
   public addBan(deviceFingerprint?: string, email?: string, reason: string = 'Policy violation'): void {
     if (deviceFingerprint) this.bannedFingerprints.add(deviceFingerprint);
     if (email) this.bannedEmails.add(email.toLowerCase());
+
+    const banItem: BannedDeviceEntry = {
+      id: `ban-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      fingerprint: deviceFingerprint || 'FP-UNKNOWN',
+      email: email || undefined,
+      reason,
+      bannedAt: new Date().toLocaleString(),
+    };
+
+    // Keep unique by fingerprint or email
+    this.bannedList = [
+      banItem,
+      ...this.bannedList.filter(
+        (b) =>
+          (!deviceFingerprint || b.fingerprint !== deviceFingerprint) &&
+          (!email || b.email?.toLowerCase() !== email.toLowerCase())
+      ),
+    ].slice(0, 500);
+
     this.saveToLocalDisk();
 
     if (this.mongoConnected && this.mongoDb) {
@@ -215,8 +248,49 @@ export class StreamPlusDatabase {
     }
   }
 
+  public removeBan(deviceFingerprint?: string, email?: string): void {
+    if (deviceFingerprint) {
+      this.bannedFingerprints.delete(deviceFingerprint);
+    }
+    if (email) {
+      this.bannedEmails.delete(email.toLowerCase());
+    }
+
+    this.bannedList = this.bannedList.filter(
+      (b) =>
+        (!deviceFingerprint || b.fingerprint !== deviceFingerprint) &&
+        (!email || b.email?.toLowerCase() !== email.toLowerCase())
+    );
+
+    this.saveToLocalDisk();
+
+    if (this.mongoConnected && this.mongoDb) {
+      this.mongoDb
+        .collection('bans')
+        .deleteMany({
+          $or: [
+            ...(deviceFingerprint ? [{ deviceFingerprint }] : []),
+            ...(email ? [{ email: email.toLowerCase() }] : []),
+          ],
+        })
+        .catch(() => {});
+    }
+  }
+
+  public getBannedList(): BannedDeviceEntry[] {
+    if (this.bannedList.length === 0 && this.bannedFingerprints.size > 0) {
+      return Array.from(this.bannedFingerprints).map((fp, i) => ({
+        id: `ban-migrated-${i}`,
+        fingerprint: fp,
+        reason: 'Violation of Community Safety Policy',
+        bannedAt: new Date().toLocaleString(),
+      }));
+    }
+    return this.bannedList;
+  }
+
   public getBannedDevicesCount(): number {
-    return this.bannedFingerprints.size;
+    return Math.max(this.bannedFingerprints.size, this.bannedList.length);
   }
 
   // Report Evidence Methods
@@ -227,6 +301,15 @@ export class StreamPlusDatabase {
 
     if (this.mongoConnected && this.mongoDb) {
       this.mongoDb.collection('reports').insertOne(report).catch(() => {});
+    }
+  }
+
+  public removeReport(reportId: string): void {
+    this.reports = this.reports.filter((r) => r.id !== reportId);
+    this.saveToLocalDisk();
+
+    if (this.mongoConnected && this.mongoDb) {
+      this.mongoDb.collection('reports').deleteOne({ id: reportId }).catch(() => {});
     }
   }
 

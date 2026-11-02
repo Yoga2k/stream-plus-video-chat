@@ -650,6 +650,7 @@ app.get('/api/admin/cctv', requireAdminAuth, (_req: Request, res: Response) => {
   return res.json({
     liveUsers,
     reportEvidenceLogs: dbStore.getReports(),
+    bannedList: dbStore.getBannedList(),
     bannedDevicesCount: dbStore.getBannedDevicesCount(),
     storage: dbStore.getStorageSummary(),
     stats,
@@ -659,7 +660,7 @@ app.get('/api/admin/cctv', requireAdminAuth, (_req: Request, res: Response) => {
 
 app.post('/api/admin/moderate', requireAdminAuth, (req: Request, res: Response) => {
   const targetId = sanitizeString(req.body?.userId, 64);
-  const action = sanitizeString(req.body?.action, 20); // 'warn' | 'disconnect' | 'ban'
+  const action = sanitizeString(req.body?.action, 20); // 'warn' | 'mute' | 'unmute' | 'disconnect' | 'ban'
   const reason =
     sanitizeString(req.body?.reason, 120) || 'Violation of Stream+ Community Safety Policy';
 
@@ -671,6 +672,18 @@ app.post('/api/admin/moderate', requireAdminAuth, (req: Request, res: Response) 
       message: `🚨 ADMIN CCTV SECURITY WARNING: ${reason}. Continued violation will result in an immediate permanent ban.`,
     });
     return res.json({ ok: true, action: 'warn', targetId });
+  }
+
+  if (action === 'mute' || action === 'unmute') {
+    const isMuted = action === 'mute';
+    sendJson(targetWs, {
+      type: 'admin_force_mute',
+      muted: isMuted,
+      message: isMuted
+        ? '🔇 An Administrator has muted your microphone.'
+        : '🔊 An Administrator has unmuted your microphone.',
+    });
+    return res.json({ ok: true, action, targetId, muted: isMuted });
   }
 
   if (action === 'disconnect') {
@@ -690,6 +703,13 @@ app.post('/api/admin/moderate', requireAdminAuth, (req: Request, res: Response) 
   }
 
   if (action === 'ban') {
+    const targetFp =
+      fingerprintByUserId.get(targetId) ||
+      sanitizeString(req.body?.fingerprint, 64) ||
+      'FP-ADMIN-MOD-BAN';
+    const targetEmail = emailByUserId.get(targetId) || sanitizeString(req.body?.email, 120);
+    dbStore.addBan(targetFp, targetEmail, reason);
+
     const { formerPartnerId } = matchmaker.banUserById(targetId, 60 * 60 * 1000);
     if (formerPartnerId) {
       sendJson(sockets.get(formerPartnerId), {
@@ -702,10 +722,105 @@ app.post('/api/admin/moderate', requireAdminAuth, (req: Request, res: Response) 
       message: `🚫 ACCOUNT SUSPENDED BY ADMIN CCTV MONITOR: ${reason}`,
     });
     broadcastStats();
-    return res.json({ ok: true, action: 'ban', targetId });
+    return res.json({ ok: true, action: 'ban', targetId, fingerprint: targetFp });
   }
 
   return res.status(400).json({ error: 'Unknown moderation action' });
+});
+
+app.post('/api/admin/unban', requireAdminAuth, (req: Request, res: Response) => {
+  const fingerprint = sanitizeString(req.body?.fingerprint, 64);
+  const email = sanitizeString(req.body?.email, 120);
+  dbStore.removeBan(fingerprint, email);
+  return res.json({ ok: true, unbanned: true, fingerprint, email });
+});
+
+app.post('/api/admin/report/dismiss', requireAdminAuth, (req: Request, res: Response) => {
+  const reportId = sanitizeString(req.body?.reportId, 64);
+  if (reportId) {
+    dbStore.removeReport(reportId);
+  }
+  return res.json({ ok: true, dismissed: reportId });
+});
+
+app.post('/api/admin/direct-call', requireAdminAuth, (req: Request, res: Response) => {
+  const adminUserId = sanitizeString(req.body?.adminUserId, 64);
+  const targetUserId = sanitizeString(req.body?.targetUserId, 64);
+
+  if (!targetUserId) {
+    return res.status(400).json({ error: 'Target user ID required' });
+  }
+
+  const targetUser = matchmaker.getUser(targetUserId);
+  if (!targetUser) {
+    return res.status(404).json({ error: 'Target user is no longer online' });
+  }
+
+  // Disconnect target user's current partner if any
+  const targetFormer = matchmaker.disconnectPartner(targetUserId);
+  if (targetFormer) {
+    sendJson(sockets.get(targetFormer), {
+      type: 'partner_left',
+      reason: 'disconnected',
+    });
+  }
+
+  // Disconnect admin user's partner if any
+  if (adminUserId) {
+    const adminFormer = matchmaker.disconnectPartner(adminUserId);
+    if (adminFormer) {
+      sendJson(sockets.get(adminFormer), {
+        type: 'partner_left',
+        reason: 'disconnected',
+      });
+    }
+  }
+
+  const effectiveAdminId = adminUserId || 'admin-live-call';
+  const adminUser = matchmaker.getUser(effectiveAdminId) || matchmaker.registerUser(effectiveAdminId, {
+    name: 'Security Admin',
+    countryCode: 'IN',
+    countryName: 'India',
+    flag: '🛡️',
+    gender: 'guy',
+  });
+
+  adminUser.partnerId = targetUserId;
+  adminUser.status = 'connected';
+  targetUser.partnerId = effectiveAdminId;
+  targetUser.status = 'connected';
+
+  const adminWs = sockets.get(effectiveAdminId);
+  const targetWs = sockets.get(targetUserId);
+
+  sendJson(adminWs, {
+    type: 'match_found',
+    role: 'caller',
+    partner: {
+      id: targetUser.id,
+      name: targetUser.name,
+      country: targetUser.countryName,
+      countryCode: targetUser.countryCode,
+      flag: targetUser.flag,
+      gender: targetUser.gender,
+    },
+  });
+
+  sendJson(targetWs, {
+    type: 'match_found',
+    role: 'callee',
+    partner: {
+      id: adminUser.id,
+      name: '🛡️ Stream+ Staff / Admin',
+      country: 'Security Center',
+      countryCode: 'IN',
+      flag: '🛡️',
+      gender: 'guy',
+    },
+  });
+
+  broadcastStats();
+  return res.json({ ok: true, connected: true, targetUser: targetUser.name });
 });
 
 // ============================================================

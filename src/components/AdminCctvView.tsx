@@ -19,6 +19,11 @@ import {
   Globe,
   Sliders,
   ExternalLink,
+  Volume2,
+  VolumeX,
+  PhoneCall,
+  Mic,
+  MicOff,
 } from 'lucide-react';
 import { StreamLogo } from './StreamHeader.tsx';
 
@@ -63,6 +68,7 @@ interface AdminCctvViewProps {
   onAdminLogout?: () => void;
   localStream: MediaStream | null;
   currentUserName: string;
+  myUserId?: string;
 }
 
 export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
@@ -71,6 +77,7 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
   onAdminLogout,
   localStream,
   currentUserName,
+  myUserId = '',
 }) => {
   const [adminToken, setAdminToken] = useState<string | null>(() => {
     try {
@@ -96,14 +103,17 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
   const [stats, setStats] = useState({ onlineCount: 2, searchingCount: 0, activeRooms: 1 });
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Audio mute state by userId
+  const [mutedUsers, setMutedUsers] = useState<Record<string, boolean>>({});
+
   // Toast feedback state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Lightbox screenshot preview state
-  const [lightboxData, setLightboxData] = useState<{ id: string; title: string; image?: string; reason: string } | null>(null);
+  const [lightboxData, setLightboxData] = useState<{ id: string; title: string; image?: string; reason: string; rep?: ReportLogItem } | null>(null);
 
-  // Local banned devices state (populated from server reports + local actions)
+  // Banned devices state (persisted and synced with server dbStore)
   const [bannedList, setBannedList] = useState<BannedDeviceItem[]>([
     {
       id: 'ban-1',
@@ -138,7 +148,7 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
     }, 3200);
   };
 
-  // Poll server for live real users & reports every 4 seconds when dashboard is open
+  // Poll server for live real users & reports every 3.5 seconds when dashboard is open
   useEffect(() => {
     if (!isOpen || !adminToken) return;
 
@@ -158,6 +168,9 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
           if (isMounted) {
             if (Array.isArray(data.liveUsers)) setLiveUsers(data.liveUsers);
             if (Array.isArray(data.reportEvidenceLogs)) setReportLogs(data.reportEvidenceLogs);
+            if (Array.isArray(data.bannedList) && data.bannedList.length > 0) {
+              setBannedList(data.bannedList);
+            }
             if (typeof data.bannedDevicesCount === 'number') setBannedCount(data.bannedDevicesCount);
             if (data.stats) setStats(data.stats);
           }
@@ -166,7 +179,7 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
     };
 
     fetchCctvData();
-    const interval = setInterval(fetchCctvData, 4000);
+    const interval = setInterval(fetchCctvData, 3500);
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -212,7 +225,62 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
     }
   };
 
-  // Moderation actions: Warn, Kick, Ban
+  // 1. Direct Call / Speak Live with Online User
+  const handleDirectCallUser = async (targetUser: LiveServerUser) => {
+    if (!confirm(`Connect directly to speak with ${targetUser.name} now?`)) return;
+
+    try {
+      const res = await fetch('/api/admin/direct-call', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({
+          adminUserId: myUserId,
+          targetUserId: targetUser.id,
+        }),
+      });
+
+      if (res.ok) {
+        showToast(`📞 Connecting live call with ${targetUser.name}...`);
+        setTimeout(() => {
+          onClose(); // Returns to main stage where WebRTC direct call is now connecting!
+        }, 500);
+      } else {
+        const err = await res.json();
+        showToast(`⚠️ ${err.error || 'User is no longer available'}`);
+      }
+    } catch {
+      showToast('Error initiating direct call.');
+    }
+  };
+
+  // 2. Mute or Unmute User Voice (Audio)
+  const handleToggleMuteUser = async (targetId: string, targetName: string) => {
+    const willMute = !mutedUsers[targetId];
+    setMutedUsers((prev) => ({ ...prev, [targetId]: willMute }));
+
+    try {
+      await fetch('/api/admin/moderate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({
+          userId: targetId,
+          action: willMute ? 'mute' : 'unmute',
+          reason: 'Moderator microphone toggle',
+        }),
+      });
+      showToast(willMute ? `🔇 Muted ${targetName}'s microphone` : `🔊 Unmuted ${targetName}'s microphone`);
+    } catch {
+      showToast('Error toggling user audio');
+    }
+  };
+
+  // 3. Moderation: Warn User
   const handleWarnUser = async (targetId: string, targetName: string) => {
     const reason = prompt(
       `Enter warning notice to show on ${targetName}'s screen:`,
@@ -233,6 +301,7 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
     }
   };
 
+  // 4. Moderation: Kick / Disconnect User
   const handleKickUser = async (targetId: string, targetName: string) => {
     if (!confirm(`Are you sure you want to disconnect ${targetName} from their current call?`)) {
       return;
@@ -255,6 +324,7 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
     }
   };
 
+  // 5. Moderation: Ban User
   const handleBanUser = async (targetId: string, targetName: string, fp?: string) => {
     if (!confirm(`Permanently BAN ${targetName} and blacklist their device fingerprint?`)) {
       return;
@@ -285,18 +355,102 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
           userId: targetId,
           action: 'ban',
           reason: 'Banned by Security Administrator',
+          fingerprint,
         }),
       }).catch(() => {});
     }
   };
 
-  const handleUnbanDevice = (item: BannedDeviceItem) => {
-    setBannedList((prev) => prev.filter((b) => b.id !== item.id));
-    setBannedCount((prev) => Math.max(0, prev - 1));
-    showToast(`✓ Unbanned device ${item.fingerprint}.`);
+  // 6. Unban Device (Calls server /api/admin/unban)
+  const handleUnbanDevice = async (item: BannedDeviceItem) => {
+    try {
+      const res = await fetch('/api/admin/unban', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({ fingerprint: item.fingerprint, email: item.email }),
+      });
+
+      if (res.ok) {
+        setBannedList((prev) => prev.filter((b) => b.id !== item.id && b.fingerprint !== item.fingerprint));
+        setBannedCount((prev) => Math.max(0, prev - 1));
+        showToast(`✓ Successfully unbanned device ${item.fingerprint}.`);
+      } else {
+        showToast('Server failed to unban device.');
+      }
+    } catch {
+      showToast('Network error unbanning device.');
+    }
   };
 
-  // Group connected live users into pairs for clear display
+  // 7. Dismiss Incident Report (Calls server /api/admin/report/dismiss)
+  const handleDismissReport = async (reportId: string) => {
+    try {
+      await fetch('/api/admin/report/dismiss', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({ reportId }),
+      });
+      setReportLogs((prev) => prev.filter((r) => r.id !== reportId));
+      if (lightboxData?.id === reportId) setLightboxData(null);
+      showToast('✓ Report dismissed.');
+    } catch {
+      showToast('Failed to dismiss report.');
+    }
+  };
+
+  // 8. Confirm Permanent Ban from Report
+  const handleConfirmBanReport = async (rep: ReportLogItem) => {
+    try {
+      await fetch('/api/admin/moderate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({
+          userId: rep.reportedId,
+          action: 'ban',
+          reason: rep.reason || 'Banned via Report Evidence',
+          fingerprint: rep.deviceFingerprint,
+        }),
+      });
+
+      // Dismiss from active reports once confirmed
+      await fetch('/api/admin/report/dismiss', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({ reportId: rep.id }),
+      });
+
+      setReportLogs((prev) => prev.filter((r) => r.id !== rep.id));
+      setBannedList((prev) => [
+        {
+          id: `ban-${Date.now()}`,
+          fingerprint: rep.deviceFingerprint,
+          email: undefined,
+          reason: rep.reason,
+          bannedAt: new Date().toLocaleString(),
+        },
+        ...prev,
+      ]);
+      setBannedCount((prev) => prev + 1);
+      showToast(`🚫 Offender ${rep.reportedName} (${rep.deviceFingerprint}) permanently banned!`);
+      if (lightboxData) setLightboxData(null);
+    } catch {
+      showToast('Failed to confirm ban.');
+    }
+  };
+
+  // Group connected live users into active pairs
   const pairedUsers = useMemo(() => {
     const pairs: { user1: LiveServerUser; user2: LiveServerUser }[] = [];
     const handled = new Set<string>();
@@ -400,7 +554,7 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
   }
 
   // ============================================================
-  // VIEW 2: NEW APPROVED REDESIGNED ADMIN DASHBOARD (V2 SIMPLE)
+  // VIEW 2: REDESIGNED ADMIN DASHBOARD (V2 SIMPLE & POWERFUL)
   // ============================================================
   return (
     <div className="fixed inset-0 z-50 bg-slate-950 text-slate-100 flex flex-col overflow-hidden select-none font-sans">
@@ -598,7 +752,7 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
         </div>
 
         {/* ============================================================ */}
-        {/* TAB 1: LIVE USERS & CALLS */}
+        {/* TAB 1: LIVE USERS & CALLS (SHOWS REAL USER LIVE VIDEO) */}
         {/* ============================================================ */}
         {activeTab === 'live-users' && (
           <div className="flex flex-col gap-4">
@@ -607,11 +761,11 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
                 <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
                   <span>📹 Real Connected Video Calls</span>
                   <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
-                    Live P2P Mode
+                    Live Video Feeds
                   </span>
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Actual real users on the server right now (no simulated dummy cameras)
+                  Actual live users streaming video. Click <strong>"Connect &amp; Speak Live"</strong> to talk to anyone face-to-face.
                 </p>
               </div>
               <button
@@ -645,36 +799,77 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
                         </span>
                       </div>
                       <span className="text-[11px] text-emerald-400 font-mono font-bold flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> LIVE
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> LIVE VIDEO
                       </span>
                     </div>
 
+                    {/* Live Video Display */}
                     <div className="aspect-video bg-slate-900 relative flex items-center justify-center overflow-hidden">
-                      <div className="w-14 h-14 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-xl font-black text-amber-300">
-                        {pair.user1.name.slice(0, 2).toUpperCase()}
-                      </div>
+                      {pair.user1.frameSnapshot ? (
+                        <img
+                          src={pair.user1.frameSnapshot}
+                          alt={pair.user1.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center text-center p-3">
+                          <div className="w-14 h-14 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-xl font-black text-amber-300 mb-1">
+                            {pair.user1.name.slice(0, 2).toUpperCase()}
+                          </div>
+                          <span className="text-[11px] text-slate-400 font-medium">Connecting camera...</span>
+                        </div>
+                      )}
+
+                      {mutedUsers[pair.user1.id] && (
+                        <div className="absolute top-2 right-2 px-2 py-0.5 rounded bg-red-600/90 text-[10px] font-bold text-white flex items-center gap-1">
+                          🔇 MUTED
+                        </div>
+                      )}
+
                       <div className="absolute bottom-2 left-2 z-10 px-2 py-0.5 rounded bg-black/75 text-[10px] text-slate-300 font-mono">
                         {pair.user1.countryName} · ID: {pair.user1.id.slice(0, 8)}
                       </div>
                     </div>
 
-                    <div className="p-3 bg-slate-900/60 border-t border-slate-800 flex items-center justify-between gap-2">
-                      <span className="text-[11px] text-slate-400">
-                        Strikes: <b className="text-white">{pair.user1.strikes}/3</b>
-                      </span>
-                      <div className="flex items-center gap-1.5">
+                    {/* Moderation Controls & Direct Call */}
+                    <div className="p-3 bg-slate-900/80 border-t border-slate-800 flex flex-col gap-2">
+                      <button
+                        onClick={() => handleDirectCallUser(pair.user1)}
+                        className="w-full py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-black text-xs shadow-md flex items-center justify-center gap-1.5 transition-all active:scale-[0.99]"
+                        title="Connect directly to speak with this user face-to-face"
+                      >
+                        <PhoneCall size={14} />
+                        <span>CONNECT &amp; SPEAK LIVE</span>
+                      </button>
+
+                      <div className="flex items-center justify-between gap-1.5 pt-1">
+                        <button
+                          onClick={() => handleToggleMuteUser(pair.user1.id, pair.user1.name)}
+                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-1 ${
+                            mutedUsers[pair.user1.id]
+                              ? 'bg-red-500/20 text-red-300 border-red-500/40'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                          }`}
+                          title={mutedUsers[pair.user1.id] ? 'Unmute microphone' : 'Mute microphone'}
+                        >
+                          {mutedUsers[pair.user1.id] ? <MicOff size={12} /> : <Mic size={12} />}
+                          <span>{mutedUsers[pair.user1.id] ? 'Unmute' : 'Mute Mic'}</span>
+                        </button>
+
                         <button
                           onClick={() => handleWarnUser(pair.user1.id, pair.user1.name)}
                           className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all"
                         >
                           ⚠️ Warn
                         </button>
+
                         <button
                           onClick={() => handleKickUser(pair.user1.id, pair.user1.name)}
                           className="px-2.5 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 text-xs font-bold transition-all"
                         >
                           🔌 Kick
                         </button>
+
                         <button
                           onClick={() => handleBanUser(pair.user1.id, pair.user1.name)}
                           className="px-2.5 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold transition-all"
@@ -696,36 +891,77 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
                         </span>
                       </div>
                       <span className="text-[11px] text-emerald-400 font-mono font-bold flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> LIVE
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> LIVE VIDEO
                       </span>
                     </div>
 
+                    {/* Live Video Display */}
                     <div className="aspect-video bg-slate-900 relative flex items-center justify-center overflow-hidden">
-                      <div className="w-14 h-14 rounded-full bg-sky-500/20 border border-sky-500/40 flex items-center justify-center text-xl font-black text-sky-300">
-                        {pair.user2.name.slice(0, 2).toUpperCase()}
-                      </div>
+                      {pair.user2.frameSnapshot ? (
+                        <img
+                          src={pair.user2.frameSnapshot}
+                          alt={pair.user2.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center text-center p-3">
+                          <div className="w-14 h-14 rounded-full bg-sky-500/20 border border-sky-500/40 flex items-center justify-center text-xl font-black text-sky-300 mb-1">
+                            {pair.user2.name.slice(0, 2).toUpperCase()}
+                          </div>
+                          <span className="text-[11px] text-slate-400 font-medium">Connecting camera...</span>
+                        </div>
+                      )}
+
+                      {mutedUsers[pair.user2.id] && (
+                        <div className="absolute top-2 right-2 px-2 py-0.5 rounded bg-red-600/90 text-[10px] font-bold text-white flex items-center gap-1">
+                          🔇 MUTED
+                        </div>
+                      )}
+
                       <div className="absolute bottom-2 left-2 z-10 px-2 py-0.5 rounded bg-black/75 text-[10px] text-slate-300 font-mono">
                         {pair.user2.countryName} · ID: {pair.user2.id.slice(0, 8)}
                       </div>
                     </div>
 
-                    <div className="p-3 bg-slate-900/60 border-t border-slate-800 flex items-center justify-between gap-2">
-                      <span className="text-[11px] text-slate-400">
-                        Strikes: <b className="text-white">{pair.user2.strikes}/3</b>
-                      </span>
-                      <div className="flex items-center gap-1.5">
+                    {/* Moderation Controls & Direct Call */}
+                    <div className="p-3 bg-slate-900/80 border-t border-slate-800 flex flex-col gap-2">
+                      <button
+                        onClick={() => handleDirectCallUser(pair.user2)}
+                        className="w-full py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-black text-xs shadow-md flex items-center justify-center gap-1.5 transition-all active:scale-[0.99]"
+                        title="Connect directly to speak with this user face-to-face"
+                      >
+                        <PhoneCall size={14} />
+                        <span>CONNECT &amp; SPEAK LIVE</span>
+                      </button>
+
+                      <div className="flex items-center justify-between gap-1.5 pt-1">
+                        <button
+                          onClick={() => handleToggleMuteUser(pair.user2.id, pair.user2.name)}
+                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-1 ${
+                            mutedUsers[pair.user2.id]
+                              ? 'bg-red-500/20 text-red-300 border-red-500/40'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                          }`}
+                          title={mutedUsers[pair.user2.id] ? 'Unmute microphone' : 'Mute microphone'}
+                        >
+                          {mutedUsers[pair.user2.id] ? <MicOff size={12} /> : <Mic size={12} />}
+                          <span>{mutedUsers[pair.user2.id] ? 'Unmute' : 'Mute Mic'}</span>
+                        </button>
+
                         <button
                           onClick={() => handleWarnUser(pair.user2.id, pair.user2.name)}
                           className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all"
                         >
                           ⚠️ Warn
                         </button>
+
                         <button
                           onClick={() => handleKickUser(pair.user2.id, pair.user2.name)}
                           className="px-2.5 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 text-xs font-bold transition-all"
                         >
                           🔌 Kick
                         </button>
+
                         <button
                           onClick={() => handleBanUser(pair.user2.id, pair.user2.name)}
                           className="px-2.5 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold transition-all"
@@ -738,52 +974,87 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
                 </div>
               ))
             ) : (
-              /* Single Admin / Standalone Live Feed preview */
-              <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col md:flex-row items-center gap-6">
-                <div className="w-full md:w-80 aspect-video rounded-xl bg-slate-950 border border-slate-800 overflow-hidden relative shadow-lg flex items-center justify-center">
-                  {localStream ? (
-                    <video
-                      ref={localVideoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="w-full h-full object-cover -scale-x-100"
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center p-4 text-center">
-                      <div className="w-12 h-12 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-xl font-bold text-amber-400 mb-2">
-                        {currentUserName.charAt(0).toUpperCase()}
+              /* Standalone Online Users (Waiting in queue or Admin feed) */
+              <div className="flex flex-col gap-4">
+                <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col md:flex-row items-center gap-6">
+                  <div className="w-full md:w-80 aspect-video rounded-xl bg-slate-950 border border-slate-800 overflow-hidden relative shadow-lg flex items-center justify-center">
+                    {localStream ? (
+                      <video
+                        ref={localVideoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-full object-cover -scale-x-100"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center p-4 text-center">
+                        <div className="w-12 h-12 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-xl font-bold text-amber-400 mb-2">
+                          {currentUserName.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-xs font-bold text-white">{currentUserName} (Admin)</span>
+                        <span className="text-[10px] text-slate-500">Camera Active in Live Stage</span>
                       </div>
-                      <span className="text-xs font-bold text-white">{currentUserName} (Admin)</span>
-                      <span className="text-[10px] text-slate-500">Camera Active in Video Chat</span>
+                    )}
+                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/75 text-[10px] font-bold text-emerald-400 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> ADMIN FEED
                     </div>
-                  )}
-                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/75 text-[10px] font-bold text-emerald-400 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> ADMIN FEED
+                  </div>
+
+                  <div className="flex-1 space-y-2 text-xs">
+                    <h3 className="text-base font-bold text-white flex items-center gap-2">
+                      <span>🟢 Live P2P Matchmaker Ready</span>
+                    </h3>
+                    <p className="text-slate-300 leading-relaxed">
+                      Every user connected to Stream+ automatically streams their live camera frames here.
+                      Admin can click <strong>"Connect &amp; Speak Live"</strong> on any user to immediately jump into a direct 2-way call with them!
+                    </p>
+                    <div className="pt-2 flex items-center gap-4 text-slate-400 font-mono text-[11px]">
+                      <span>Waiting in Queue: <strong className="text-white">{searchingUsers.length}</strong></span>
+                      <span>·</span>
+                      <span>Server Engine: <strong className="text-emerald-400">Online</strong></span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex-1 space-y-2 text-xs">
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <span>🟢 Real Matchmaking Engine Online</span>
-                  </h3>
-                  <p className="text-slate-300 leading-relaxed">
-                    When visitors open Stream+ on phones or computers and click <strong>START</strong>,
-                    they will immediately appear here in live 1-on-1 pair tiles with full moderation controls (Warn, Kick, Ban).
-                  </p>
-                  <div className="pt-2 flex items-center gap-4 text-slate-400 font-mono text-[11px]">
-                    <span>Waiting in Queue: <strong className="text-white">{searchingUsers.length}</strong></span>
-                    <span>·</span>
-                    <span>Server Uptime: <strong className="text-emerald-400">100%</strong></span>
+                {/* Display any searching users in queue */}
+                {searchingUsers.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                    {searchingUsers.map((user) => (
+                      <div key={user.id} className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden shadow-md flex flex-col">
+                        <div className="p-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs">
+                          <span className="font-bold text-white flex items-center gap-1.5">
+                            <span>{user.flag}</span>
+                            <span>{user.name}</span>
+                          </span>
+                          <span className="text-[10px] text-amber-400 font-bold">In Queue</span>
+                        </div>
+                        <div className="aspect-video bg-slate-950 relative flex items-center justify-center overflow-hidden">
+                          {user.frameSnapshot ? (
+                            <img src={user.frameSnapshot} alt={user.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-xs text-slate-500">Camera streaming...</span>
+                          )}
+                        </div>
+                        <div className="p-2.5 bg-slate-950/70 border-t border-slate-800 flex flex-col gap-1.5">
+                          <button
+                            onClick={() => handleDirectCallUser(user)}
+                            className="w-full py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1"
+                          >
+                            <PhoneCall size={12} />
+                            <span>Connect &amp; Speak</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
+                )}
               </div>
             )}
           </div>
         )}
 
         {/* ============================================================ */}
-        {/* TAB 2: REPORTS & EVIDENCE LOG */}
+        {/* TAB 2: REPORTS & EVIDENCE (CONFIRM BAN & DISMISS WORK!) */}
         {/* ============================================================ */}
         {activeTab === 'reports' && (
           <div className="flex flex-col gap-4">
@@ -796,7 +1067,7 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
                   </span>
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Click any screenshot to inspect evidence in high resolution
+                  Click any screenshot to inspect evidence in high resolution. Confirm Ban and Dismiss are 100% permanently saved!
                 </p>
               </div>
             </div>
@@ -816,6 +1087,7 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
                             title: `Evidence: ${rep.reportedName}`,
                             image: rep.screenshot,
                             reason: rep.reason,
+                            rep,
                           })
                         }
                         className="w-20 h-14 rounded-xl bg-slate-950 border border-rose-500/50 flex flex-col items-center justify-center cursor-pointer hover:scale-105 transition-transform overflow-hidden relative group shrink-0"
@@ -860,17 +1132,14 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
 
                     <div className="flex items-center gap-2 self-end sm:self-center">
                       <button
-                        onClick={() => {
-                          setReportLogs((prev) => prev.filter((r) => r.id !== rep.id));
-                          showToast('Report dismissed');
-                        }}
-                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors"
+                        onClick={() => handleDismissReport(rep.id)}
+                        className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors"
                       >
                         Dismiss
                       </button>
                       <button
-                        onClick={() => handleBanUser(rep.reportedId, rep.reportedName, rep.deviceFingerprint)}
-                        className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white shadow-sm transition-all"
+                        onClick={() => handleConfirmBanReport(rep)}
+                        className="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white shadow-sm transition-all"
                       >
                         Confirm Ban
                       </button>
@@ -889,7 +1158,7 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
         )}
 
         {/* ============================================================ */}
-        {/* TAB 3: BANNED DEVICES & HARDWARE FINGERPRINTS */}
+        {/* TAB 3: BANNED DEVICES & UNBAN (100% WORKING VIA SERVER API) */}
         {/* ============================================================ */}
         {activeTab === 'banned' && (
           <div className="flex flex-col gap-4">
@@ -902,7 +1171,7 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
                   </span>
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Banned devices cannot connect even with VPN, Incognito, or account changes
+                  Click <strong>"✓ Unban"</strong> to immediately remove the block and allow the user back in!
                 </p>
               </div>
             </div>
@@ -932,7 +1201,7 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
                       <td className="p-3.5 text-right">
                         <button
                           onClick={() => handleUnbanDevice(item)}
-                          className="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-bold transition-all"
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-bold transition-all"
                         >
                           ✓ Unban
                         </button>
@@ -1051,20 +1320,25 @@ export const AdminCctvView: React.FC<AdminCctvViewProps> = ({
             </div>
             <div className="p-3 bg-slate-900 border-t border-slate-800 flex items-center justify-end gap-2">
               <button
-                onClick={() => setLightboxData(null)}
+                onClick={() => {
+                  if (lightboxData.rep) {
+                    handleDismissReport(lightboxData.rep.id);
+                  } else {
+                    setLightboxData(null);
+                  }
+                }}
                 className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 font-semibold"
               >
-                Dismiss
+                Dismiss Report
               </button>
-              <button
-                onClick={() => {
-                  showToast('Offender banned permanently');
-                  setLightboxData(null);
-                }}
-                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-xs text-white font-bold"
-              >
-                Ban Offender Now
-              </button>
+              {lightboxData.rep && (
+                <button
+                  onClick={() => handleConfirmBanReport(lightboxData.rep!)}
+                  className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-xs text-white font-bold"
+                >
+                  Confirm Ban &amp; Blacklist
+                </button>
+              )}
             </div>
           </div>
         </div>

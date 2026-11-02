@@ -255,6 +255,7 @@ export const LocalVideo: React.FC<LocalVideoProps> = ({
     >
       {/* Real Webcam Stream */}
       <video
+        id="stream-local-video"
         ref={videoRef}
         autoPlay
         playsInline
