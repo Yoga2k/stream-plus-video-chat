@@ -712,6 +712,11 @@ app.post('/api/admin/moderate', requireAdminAuth, (req: Request, res: Response) 
 // GOOGLE SEARCH ENGINE & SEO ROUTES (robots.txt, sitemap.xml, manifest.json, /api/seo-audit)
 // ============================================================
 
+// Google Search Console HTML File Ownership Verification
+app.get('/google9f9b6ae61c58e73a.html', (_req: Request, res: Response) => {
+  res.type('text/html').send('google-site-verification: google9f9b6ae61c58e73a.html');
+});
+
 app.get('/robots.txt', (req: Request, res: Response) => {
   const host = req.headers.host || `localhost:${PORT}`;
   const protocol = req.headers['x-forwarded-proto'] || 'http';
