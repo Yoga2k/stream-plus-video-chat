@@ -48,6 +48,10 @@ export const StreamHeader: React.FC<StreamHeaderProps> = ({
   activeRooms = 0,
   soundEnabled,
   onToggleSound,
+  onOpenAdminCctv,
+  onOpenSeo,
+  onOpenRules,
+  onOpenAuth,
   userProfile,
 }) => {
   return (
