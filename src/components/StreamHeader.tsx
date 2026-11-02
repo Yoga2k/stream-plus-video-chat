@@ -86,11 +86,11 @@ export const StreamHeader: React.FC<StreamHeaderProps> = ({
         {userProfile?.isAdmin && (
           <button
             onClick={onOpenAdminCctv}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-950/70 hover:bg-red-900/80 border border-red-500/70 text-xs font-bold text-red-200 transition-colors shadow-sm"
-            title="Open 1,000-User Admin CCTV Monitor (10 Users / Page)"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-xs font-bold text-amber-300 transition-colors shadow-sm"
+            title="Open Stream+ Admin Control Center"
           >
-            <ShieldAlert size={14} className="text-red-400" />
-            <span>CCTV Monitor</span>
+            <ShieldAlert size={14} className="text-amber-400" />
+            <span>Admin Dashboard</span>
           </button>
         )}
 
