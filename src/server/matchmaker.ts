@@ -150,10 +150,18 @@ export class Matchmaker {
       return { matched: false };
     }
 
-    // Helper: check if two users satisfy each other's country filters
+    // Helper: check if two users satisfy each other's state / country filters
     const matchesCountryPref = (a: PeerUser, b: PeerUser): boolean => {
-      const aOk = a.preferredCountry === 'ALL' || a.preferredCountry === b.countryCode;
-      const bOk = b.preferredCountry === 'ALL' || b.preferredCountry === a.countryCode;
+      const aOk =
+        a.preferredCountry === 'ALL' ||
+        a.preferredCountry === b.countryCode ||
+        a.preferredCountry === b.preferredCountry ||
+        (a.preferredCountry === 'IN' && b.countryCode.startsWith('IN'));
+      const bOk =
+        b.preferredCountry === 'ALL' ||
+        b.preferredCountry === a.countryCode ||
+        b.preferredCountry === a.preferredCountry ||
+        (b.preferredCountry === 'IN' && a.countryCode.startsWith('IN'));
       return aOk && bOk;
     };
 

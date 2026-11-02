@@ -50,29 +50,37 @@ export default function App() {
   const [allowDemoBots, setAllowDemoBots] = useState<boolean>(false);
   const [micMuted, setMicMuted] = useState<boolean>(false);
   const [videoMuted, setVideoMuted] = useState<boolean>(false);
+  const [faceDetected, setFaceDetected] = useState<boolean>(false);
   const [likeCount, setLikeCount] = useState<number>(0);
   const [incomingLikeTrigger, setIncomingLikeTrigger] = useState<number>(0);
 
-  const defaultGuestName = 'Guest';
+  const defaultGuestName = 'User';
+
+  const [ageVerified, setAgeVerified] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('stream_plus_age_18_verified') === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
     try {
       const savedJson = localStorage.getItem('stream_plus_user_profile');
       if (savedJson) {
-        return JSON.parse(savedJson) as UserProfile;
-      }
-      const legacyName = localStorage.getItem('stream_plus_user');
-      if (legacyName) {
-        return { name: legacyName, provider: 'guest' };
+        const parsed = JSON.parse(savedJson) as UserProfile;
+        if (parsed && parsed.email) {
+          return parsed;
+        }
       }
     } catch {}
-    return { name: defaultGuestName, provider: 'guest' };
+    return null;
   });
 
-  // Modals
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(() => {
-    return !localStorage.getItem('stream_plus_user_profile') && !localStorage.getItem('stream_plus_user');
-  });
+  const isSignedIn = Boolean(userProfile && userProfile.email);
+
+  // Modals: First Popup (18+ Age Check) -> Next (Mandatory Sign In / Login)
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(true);
   const [isAdminCctvOpen, setIsAdminCctvOpen] = useState<boolean>(false);
   const [isSeoModalOpen, setIsSeoModalOpen] = useState<boolean>(false);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState<boolean>(false);
@@ -283,12 +291,17 @@ export default function App() {
       setIsTyping(false);
       setStatus('searching');
 
+      const activeRegion =
+        countryFilterCode !== 'ALL'
+          ? COUNTRIES.find((c) => c.code === countryFilterCode) || myCountry
+          : myCountry;
+
       webrtcRef.current?.joinQueue({
         name: userProfile?.name || defaultGuestName,
         email: userProfile?.email,
-        countryCode: myCountry.code,
-        countryName: myCountry.name,
-        flag: myCountry.flag,
+        countryCode: activeRegion.code,
+        countryName: activeRegion.name,
+        flag: activeRegion.flag,
         gender,
         preferredCountry: countryFilterCode,
       });
@@ -299,10 +312,31 @@ export default function App() {
         }, 3500);
       }
     },
-    [selectedCountry.code, userProfile?.name, defaultGuestName, myCountry, gender, allowDemoBots, connectDemoBot]
+    [selectedCountry.code, userProfile?.name, userProfile?.email, defaultGuestName, myCountry, gender, allowDemoBots, connectDemoBot]
   );
 
+  const ensureAuthenticatedAndFaceVisible = (): boolean => {
+    if (!ageVerified || !isSignedIn) {
+      setIsAuthModalOpen(true);
+      return false;
+    }
+    if (!faceDetected) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `face-${Date.now()}`,
+          sender: 'system',
+          text: '⚠️ Face Required: Please show your face clearly in the camera to click Start or Next.',
+          time: formatMessageTime(),
+        },
+      ]);
+      return false;
+    }
+    return true;
+  };
+
   const handleStart = () => {
+    if (!ensureAuthenticatedAndFaceVisible()) return;
     setMessages((prev) => [
       ...prev,
       {
@@ -316,6 +350,7 @@ export default function App() {
   };
 
   const handleNext = () => {
+    if (!ensureAuthenticatedAndFaceVisible()) return;
     // 1-Second Skip Flooding Rate Limiter (Anti-Bot Protection)
     const now = Date.now();
     if (now - lastSkipAtRef.current < 950) {
@@ -485,7 +520,7 @@ export default function App() {
   }, [status, partner, startMatchmaking]);
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
+    <div className="flex flex-col h-[100dvh] w-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
       {/* 1. Header Bar */}
       <StreamHeader
         onlineCount={onlineCount}
@@ -501,10 +536,10 @@ export default function App() {
         userProfile={userProfile}
       />
 
-      {/* 2. Main Stage: Video Feeds (Left/Center) + Text Chat (Right) */}
-      <main className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
-        <div className="flex-1 flex flex-col min-w-0 h-full">
-          <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 bg-black min-h-0 relative">
+      {/* 2. Main Stage: Video Feeds + ControlsDock + Text Chat */}
+      <main className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden relative">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+          <div className="flex-1 grid grid-cols-1 grid-rows-2 sm:grid-rows-1 sm:grid-cols-2 bg-black min-h-0 overflow-hidden relative">
             <RemoteVideo
               status={status}
               partner={partner}
@@ -515,6 +550,8 @@ export default function App() {
               incomingLikeTrigger={incomingLikeTrigger}
               allowDemoBots={allowDemoBots}
               onConnectDemoBotNow={connectDemoBot}
+              onStart={handleStart}
+              faceDetected={faceDetected}
             />
 
             <LocalVideo
@@ -524,6 +561,7 @@ export default function App() {
               onToggleVideo={() => setVideoMuted((prev) => !prev)}
               onStreamReady={handleLocalStreamReady}
               onNsfwAutoBan={handleNsfwAutoBan}
+              onFaceDetectedChange={setFaceDetected}
               userName={userProfile?.name || defaultGuestName}
             />
           </div>
@@ -536,7 +574,7 @@ export default function App() {
             selectedCountry={selectedCountry}
             onSelectCountry={(country) => {
               setSelectedCountry(country);
-              if (status === 'connected' || status === 'searching') {
+              if ((status === 'connected' || status === 'searching') && faceDetected) {
                 startMatchmaking(country.code);
               }
             }}
@@ -544,10 +582,11 @@ export default function App() {
             onToggleGender={() => {
               setGender((prev) => (prev === 'guy' ? 'girl' : prev === 'girl' ? 'couple' : 'guy'));
             }}
+            faceDetected={faceDetected}
           />
         </div>
 
-        <aside className="w-full md:w-80 lg:w-96 h-64 md:h-full shrink-0 flex flex-col">
+        <aside className="w-full md:w-80 lg:w-96 h-36 sm:h-44 md:h-full shrink-0 flex flex-col">
           <ChatBox
             messages={messages}
             onSendMessage={handleSendMessage}
@@ -560,10 +599,19 @@ export default function App() {
         </aside>
       </main>
 
-      {/* 3. Rebranded OmeTV "Become a Stream+ member!" Modal (Google, Email ID & Hidden Admin Auth) */}
+      {/* 3. Mandatory Step 1 (18+ Age Check) -> Step 2 (Sign In / Login) Modal */}
       <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
+        isOpen={isAuthModalOpen || !ageVerified || !isSignedIn}
+        onClose={() => {
+          if (ageVerified && isSignedIn) {
+            setIsAuthModalOpen(false);
+          }
+        }}
+        ageVerified={ageVerified}
+        onConfirmAge18={() => {
+          sessionStorage.setItem('stream_plus_age_18_verified', 'true');
+          setAgeVerified(true);
+        }}
         currentUser={userProfile?.email ? userProfile : null}
         onSignIn={(profile) => {
           localStorage.setItem('stream_plus_user_profile', JSON.stringify(profile));
@@ -578,8 +626,9 @@ export default function App() {
           localStorage.removeItem('stream_plus_user_profile');
           localStorage.removeItem('stream_plus_user');
           localStorage.removeItem('stream_plus_admin_token');
-          setUserProfile({ name: defaultGuestName, provider: 'guest' });
+          setUserProfile(null);
           setIsAdminCctvOpen(false);
+          setIsAuthModalOpen(true);
         }}
         onlineCount={onlineCount}
       />
@@ -592,8 +641,9 @@ export default function App() {
           localStorage.removeItem('stream_plus_user_profile');
           localStorage.removeItem('stream_plus_user');
           localStorage.removeItem('stream_plus_admin_token');
-          setUserProfile({ name: defaultGuestName, provider: 'guest' });
+          setUserProfile(null);
           setIsAdminCctvOpen(false);
+          setIsAuthModalOpen(true);
         }}
         localStream={localStreamState}
         currentUserName={userProfile?.name || defaultGuestName}

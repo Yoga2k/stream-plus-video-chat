@@ -17,6 +17,7 @@ import {
   checkVirtualCameras,
   scanVideoFrameForNsfw,
   captureVideoScreenshot,
+  detectHumanFaceInFrame,
 } from '../utils/securityGuard.ts';
 
 interface LocalVideoProps {
@@ -26,6 +27,7 @@ interface LocalVideoProps {
   onToggleVideo: () => void;
   onStreamReady: (stream: MediaStream | null) => void;
   onNsfwAutoBan?: (reason: string, screenshot: string | null) => void;
+  onFaceDetectedChange?: (detected: boolean) => void;
   userName?: string;
 }
 
@@ -36,6 +38,7 @@ export const LocalVideo: React.FC<LocalVideoProps> = ({
   onToggleVideo,
   onStreamReady,
   onNsfwAutoBan,
+  onFaceDetectedChange,
   userName = 'You',
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -52,7 +55,8 @@ export const LocalVideo: React.FC<LocalVideoProps> = ({
   // OmeTV Security & AI Moderation States
   const [virtualCamBlocked, setVirtualCamBlocked] = useState<string | null>(null);
   const [nsfwAutoBlurred, setNsfwAutoBlurred] = useState<boolean>(false);
-  const [nsfwScanCount, setNsfwScanCount] = useState<number>(0);
+  const [faceDetected, setFaceDetected] = useState<boolean>(false);
+  const [faceStatusReason, setFaceStatusReason] = useState<string>('Show your face in camera');
 
   // Enumerate available cameras
   useEffect(() => {
@@ -204,14 +208,13 @@ export const LocalVideo: React.FC<LocalVideoProps> = ({
     }
   }, [micMuted, videoMuted]);
 
-  // Browser-Based AI Auto-Nudity / NSFW Frame Scanner (Runs every 3 seconds in browser, 0 server cost!)
+  // Browser-Based AI Auto-Nudity / NSFW Frame Scanner (Runs silently every 3 seconds in browser)
   useEffect(() => {
     if (videoMuted || nsfwAutoBlurred || virtualCamBlocked) return;
 
     const scanTimer = setInterval(() => {
       const targetEl = hasRealStream ? videoRef.current : fallbackCanvasRef.current;
       const result = scanVideoFrameForNsfw(targetEl, false);
-      setNsfwScanCount((c) => c + 1);
 
       if (result.flagged) {
         // 1-Second Instant Video Blur + Auto-Ban
@@ -226,6 +229,34 @@ export const LocalVideo: React.FC<LocalVideoProps> = ({
 
     return () => clearInterval(scanTimer);
   }, [hasRealStream, videoMuted, nsfwAutoBlurred, virtualCamBlocked, onNsfwAutoBan]);
+
+  // Real-Time Face Detection Gate (Must show face in camera to unlock Start / Next)
+  useEffect(() => {
+    if (videoMuted || virtualCamBlocked || nsfwAutoBlurred || !hasRealStream) {
+      setFaceDetected(false);
+      setFaceStatusReason(
+        videoMuted ? 'Turn on camera & show your face' : 'Show your face in the camera'
+      );
+      onFaceDetectedChange?.(false);
+      return;
+    }
+
+    let cancelled = false;
+    const checkFace = async () => {
+      const res = await detectHumanFaceInFrame(videoRef.current);
+      if (cancelled) return;
+      setFaceDetected(res.faceDetected);
+      setFaceStatusReason(res.reason);
+      onFaceDetectedChange?.(res.faceDetected);
+    };
+
+    checkFace();
+    const faceTimer = setInterval(checkFace, 700);
+    return () => {
+      cancelled = true;
+      clearInterval(faceTimer);
+    };
+  }, [hasRealStream, videoMuted, virtualCamBlocked, nsfwAutoBlurred, onFaceDetectedChange]);
 
   // Check for covered/black camera frame every 4 seconds when real webcam is active
   useEffect(() => {
@@ -353,20 +384,24 @@ export const LocalVideo: React.FC<LocalVideoProps> = ({
         </div>
       )}
 
-      {/* Top-Right Browser AI NSFW Scanner Status Badge */}
+      {/* Top-Right Face Verification Status Badge */}
       {!videoMuted && !nsfwAutoBlurred && (
         <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5">
-          <div
-            className="px-2 py-1 rounded-md bg-slate-950/85 backdrop-blur-md border border-emerald-500/40 text-[10px] font-semibold text-emerald-300 flex items-center gap-1 shadow-sm"
-            title="Browser-based AI NSFW Scanner runs every 3 seconds with zero server cost"
-          >
-            <ShieldCheck size={11} className="text-emerald-400" />
-            <span>AI NSFW Scan (3s) #{nsfwScanCount}</span>
-          </div>
+          {faceDetected ? (
+            <div className="px-2.5 py-1 rounded-md bg-emerald-950/90 backdrop-blur-md border border-emerald-500/60 text-[10px] font-bold text-emerald-300 flex items-center gap-1 shadow-sm">
+              <ShieldCheck size={12} className="text-emerald-400" />
+              <span>Face Verified</span>
+            </div>
+          ) : (
+            <div className="px-2.5 py-1 rounded-md bg-amber-500/95 text-slate-950 text-[10px] font-extrabold flex items-center gap-1 shadow-md animate-pulse">
+              <AlertCircle size={12} />
+              <span>{faceStatusReason}</span>
+            </div>
+          )}
           {streamError && (
             <div className="hidden sm:flex px-2 py-1 rounded-md bg-slate-900/90 border border-slate-700 text-[10px] text-amber-400 items-center gap-1 shadow-sm">
               <Camera size={11} />
-              <span>Canvas Cam</span>
+              <span>No Cam</span>
             </div>
           )}
         </div>
@@ -375,7 +410,7 @@ export const LocalVideo: React.FC<LocalVideoProps> = ({
       {/* Local Video Top-Left Label */}
       <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
         <span className="px-2.5 py-1 rounded-md bg-slate-950/80 backdrop-blur-md border border-slate-700/80 text-[11px] font-bold text-white shadow-sm flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-emerald-400" />
+          <span className={`w-2 h-2 rounded-full ${faceDetected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
           {userName}
         </span>
         {micMuted && (
@@ -383,14 +418,6 @@ export const LocalVideo: React.FC<LocalVideoProps> = ({
             <MicOff size={11} /> Muted
           </span>
         )}
-      </div>
-
-      {/* Bottom-Left 18+ Legal & Safety Watermark Overlay */}
-      <div className="absolute bottom-3 left-3 z-10 max-w-[60%] pointer-events-none">
-        <div className="px-2.5 py-1 rounded-md bg-black/65 backdrop-blur-xs border border-white/10 text-[10px] text-slate-300 leading-tight">
-          <strong className="text-amber-400">🔞 18+ Only.</strong> Nudity, OBS virtual cams, or
-          harassment leads to instant Device &amp; IP ban.
-        </div>
       </div>
 
       {/* Local Video Floating Control Bar (Bottom Right) */}

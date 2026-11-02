@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Square, SkipForward, Globe, ChevronDown, Check, Search } from 'lucide-react';
+import { Play, Square, SkipForward, ChevronDown, Check, Search, Lock } from 'lucide-react';
 import { COUNTRIES, CountryInfo, filterCountries } from '../utils/streamLogic.ts';
 
 interface ControlsDockProps {
@@ -11,6 +11,7 @@ interface ControlsDockProps {
   onSelectCountry: (country: CountryInfo) => void;
   gender: 'guy' | 'girl' | 'couple';
   onToggleGender: () => void;
+  faceDetected: boolean;
 }
 
 export const ControlsDock: React.FC<ControlsDockProps> = ({
@@ -22,11 +23,24 @@ export const ControlsDock: React.FC<ControlsDockProps> = ({
   onSelectCountry,
   gender,
   onToggleGender,
+  faceDetected,
 }) => {
   const [showCountryModal, setShowCountryModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [regionTab, setRegionTab] = useState<'all' | 'india' | 'global'>('india');
 
-  const filteredCountries = filterCountries(COUNTRIES, searchQuery);
+  const tabFiltered = COUNTRIES.filter((c) => {
+    if (c.code === 'ALL') return true;
+    if (regionTab === 'india') {
+      return c.category === 'india_state' || c.category === 'india_ut';
+    }
+    if (regionTab === 'global') {
+      return c.category === 'global';
+    }
+    return true;
+  });
+
+  const filteredCountries = filterCountries(tabFiltered, searchQuery);
 
   const genderLabels = {
     guy: { label: 'Guy', emoji: '👦' },
@@ -34,35 +48,68 @@ export const ControlsDock: React.FC<ControlsDockProps> = ({
     couple: { label: 'Couple', emoji: '👥' },
   };
 
+  const shortLocationName =
+    selectedCountry.code === 'ALL'
+      ? 'State / All'
+      : selectedCountry.name.replace(/\s*\[UT\]$/i, '').replace(/\s*\(All States.*\)$/i, '');
+
   return (
-    <div className="relative flex items-center justify-between gap-3 p-3 bg-slate-900 border-t border-slate-800 shrink-0">
-      {/* Action Buttons Cluster: Start/Next, Stop, Country, Gender */}
-      <div className="grid grid-cols-4 gap-2 w-full max-w-xl">
-        {/* 1. START / NEXT BUTTON */}
+    <div className="relative flex items-center justify-center gap-2 p-2 sm:p-3 bg-slate-900 border-t border-slate-800 shrink-0 z-30">
+      {/* Action Buttons Cluster: Start/Next, Stop, State/Country, Gender */}
+      <div className="grid grid-cols-4 gap-1.5 sm:gap-2 w-full max-w-xl">
+        {/* 1. START / NEXT BUTTON (Requires Face Detection!) */}
         {status === 'stopped' ? (
           <button
             onClick={onStart}
-            className="flex flex-col items-center justify-center py-2.5 px-3 rounded-xl bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 active:translate-y-0.5 text-white shadow-lg shadow-emerald-950/40 border-b-4 border-emerald-700 transition-all group"
+            disabled={!faceDetected}
+            title={
+              faceDetected
+                ? 'Start live video call'
+                : 'Please show your face in the camera to click Start'
+            }
+            className={`flex flex-col items-center justify-center py-2 px-2 sm:py-2.5 sm:px-3 rounded-xl transition-all group ${
+              faceDetected
+                ? 'bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 active:translate-y-0.5 text-white shadow-lg shadow-emerald-950/40 border-b-4 border-emerald-700'
+                : 'bg-slate-800/80 text-amber-300 border-b-4 border-slate-950 cursor-not-allowed opacity-85'
+            }`}
           >
-            <div className="flex items-center gap-1.5">
-              <Play size={18} className="fill-white" />
-              <span className="font-black text-sm tracking-wide">START</span>
+            <div className="flex items-center gap-1">
+              {faceDetected ? (
+                <Play size={16} className="fill-white shrink-0" />
+              ) : (
+                <Lock size={14} className="text-amber-400 shrink-0" />
+              )}
+              <span className="font-black text-xs sm:text-sm tracking-wide">START</span>
             </div>
-            <span className="text-[10px] text-emerald-100 font-mono opacity-80 group-hover:opacity-100">
-              [F2]
+            <span className="text-[9px] sm:text-[10px] opacity-90 truncate max-w-full">
+              {faceDetected ? 'Ready' : 'Show Face'}
             </span>
           </button>
         ) : (
           <button
             onClick={onNext}
-            className="flex flex-col items-center justify-center py-2.5 px-3 rounded-xl bg-gradient-to-b from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 active:translate-y-0.5 text-white shadow-lg shadow-blue-950/40 border-b-4 border-blue-800 transition-all group"
+            disabled={!faceDetected}
+            title={
+              faceDetected
+                ? 'Skip to next partner'
+                : 'Please show your face in the camera to click Next'
+            }
+            className={`flex flex-col items-center justify-center py-2 px-2 sm:py-2.5 sm:px-3 rounded-xl transition-all group ${
+              faceDetected
+                ? 'bg-gradient-to-b from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 active:translate-y-0.5 text-white shadow-lg shadow-blue-950/40 border-b-4 border-blue-800'
+                : 'bg-slate-800/80 text-amber-300 border-b-4 border-slate-950 cursor-not-allowed opacity-85'
+            }`}
           >
-            <div className="flex items-center gap-1.5">
-              <SkipForward size={18} className="fill-white" />
-              <span className="font-black text-sm tracking-wide">NEXT</span>
+            <div className="flex items-center gap-1">
+              {faceDetected ? (
+                <SkipForward size={16} className="fill-white shrink-0" />
+              ) : (
+                <Lock size={14} className="text-amber-400 shrink-0" />
+              )}
+              <span className="font-black text-xs sm:text-sm tracking-wide">NEXT</span>
             </div>
-            <span className="text-[10px] text-sky-100 font-mono opacity-80 group-hover:opacity-100">
-              [F2 / Space]
+            <span className="text-[9px] sm:text-[10px] opacity-90 truncate max-w-full">
+              {faceDetected ? 'Skip' : 'Show Face'}
             </span>
           </button>
         )}
@@ -71,69 +118,105 @@ export const ControlsDock: React.FC<ControlsDockProps> = ({
         <button
           onClick={onStop}
           disabled={status === 'stopped'}
-          className={`flex flex-col items-center justify-center py-2.5 px-3 rounded-xl transition-all ${
+          className={`flex flex-col items-center justify-center py-2 px-2 sm:py-2.5 sm:px-3 rounded-xl transition-all ${
             status === 'stopped'
               ? 'bg-slate-800/50 text-slate-500 border-b-4 border-slate-900 cursor-not-allowed opacity-50'
               : 'bg-gradient-to-b from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 active:translate-y-0.5 text-white shadow-lg shadow-red-950/40 border-b-4 border-red-900'
           }`}
         >
-          <div className="flex items-center gap-1.5">
-            <Square size={16} className={status === 'stopped' ? '' : 'fill-white'} />
-            <span className="font-black text-sm tracking-wide">STOP</span>
+          <div className="flex items-center gap-1">
+            <Square size={15} className={status === 'stopped' ? '' : 'fill-white'} />
+            <span className="font-black text-xs sm:text-sm tracking-wide">STOP</span>
           </div>
-          <span className="text-[10px] opacity-80 font-mono">[Esc]</span>
+          <span className="text-[9px] sm:text-[10px] opacity-80">Stop Call</span>
         </button>
 
-        {/* 3. COUNTRY FILTER BUTTON */}
+        {/* 3. INDIA STATES / UT & COUNTRY FILTER BUTTON */}
         <button
           onClick={() => setShowCountryModal((prev) => !prev)}
-          className="flex flex-col items-center justify-center py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-750 border border-slate-700/80 active:translate-y-0.5 text-white shadow-md transition-all relative"
+          className="flex flex-col items-center justify-center py-2 px-2 sm:py-2.5 sm:px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/80 active:translate-y-0.5 text-white shadow-md transition-all relative"
         >
-          <div className="flex items-center gap-1">
-            <span className="text-base leading-none">{selectedCountry.flag}</span>
-            <span className="font-bold text-xs truncate max-w-[55px] sm:max-w-[70px]">
-              {selectedCountry.code === 'ALL' ? 'Country' : selectedCountry.code}
+          <div className="flex items-center gap-1 max-w-full">
+            <span className="text-sm sm:text-base leading-none shrink-0">{selectedCountry.flag}</span>
+            <span className="font-bold text-[11px] sm:text-xs truncate max-w-[54px] sm:max-w-[85px]">
+              {shortLocationName}
             </span>
-            <ChevronDown size={12} className="text-slate-400" />
+            <ChevronDown size={11} className="text-slate-400 shrink-0" />
           </div>
-          <span className="text-[9px] text-slate-400">Filter</span>
+          <span className="text-[9px] text-amber-400 font-semibold">State / Filter</span>
         </button>
 
         {/* 4. GENDER / IDENTITY SELECTOR BUTTON */}
         <button
           onClick={onToggleGender}
-          className="flex flex-col items-center justify-center py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-750 border border-slate-700/80 active:translate-y-0.5 text-white shadow-md transition-all"
+          className="flex flex-col items-center justify-center py-2 px-2 sm:py-2.5 sm:px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/80 active:translate-y-0.5 text-white shadow-md transition-all"
         >
           <div className="flex items-center gap-1">
-            <span className="text-base leading-none">{genderLabels[gender].emoji}</span>
-            <span className="font-bold text-xs">{genderLabels[gender].label}</span>
+            <span className="text-sm sm:text-base leading-none">{genderLabels[gender].emoji}</span>
+            <span className="font-bold text-[11px] sm:text-xs">{genderLabels[gender].label}</span>
           </div>
           <span className="text-[9px] text-slate-400">I am</span>
         </button>
       </div>
 
-      {/* Country Selection Modal Drawer */}
+      {/* State / Union Territory / Country Selection Modal Drawer */}
       {showCountryModal && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs"
+            className="fixed inset-0 z-40 bg-black/65 backdrop-blur-xs"
             onClick={() => setShowCountryModal(false)}
           />
-          <div className="absolute bottom-20 left-3 z-50 w-72 max-h-96 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <div className="fixed sm:absolute bottom-16 left-2 right-2 sm:left-3 sm:right-auto z-50 sm:w-80 max-h-[75dvh] sm:max-h-96 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in slide-in-from-bottom-2 duration-150">
+            {/* Region Filter Tabs: India States & UTs vs Global */}
+            <div className="grid grid-cols-3 gap-1 p-2 bg-slate-950 border-b border-slate-800 text-[11px] font-bold">
+              <button
+                type="button"
+                onClick={() => setRegionTab('india')}
+                className={`py-1.5 px-2 rounded-lg transition-colors ${
+                  regionTab === 'india'
+                    ? 'bg-amber-500 text-slate-950'
+                    : 'text-slate-400 hover:text-white bg-slate-900'
+                }`}
+              >
+                🇮🇳 India States/UT
+              </button>
+              <button
+                type="button"
+                onClick={() => setRegionTab('global')}
+                className={`py-1.5 px-2 rounded-lg transition-colors ${
+                  regionTab === 'global'
+                    ? 'bg-amber-500 text-slate-950'
+                    : 'text-slate-400 hover:text-white bg-slate-900'
+                }`}
+              >
+                🌐 Countries
+              </button>
+              <button
+                type="button"
+                onClick={() => setRegionTab('all')}
+                className={`py-1.5 px-2 rounded-lg transition-colors ${
+                  regionTab === 'all'
+                    ? 'bg-amber-500 text-slate-950'
+                    : 'text-slate-400 hover:text-white bg-slate-900'
+                }`}
+              >
+                All (49)
+              </button>
+            </div>
+
             {/* Search Header */}
-            <div className="p-3 border-b border-slate-800 flex items-center gap-2">
-              <Search size={15} className="text-slate-400" />
+            <div className="p-2.5 border-b border-slate-800 flex items-center gap-2 bg-slate-900">
+              <Search size={15} className="text-slate-400 shrink-0" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search countries..."
-                className="w-full bg-transparent text-sm text-white placeholder-slate-500 focus:outline-none"
-                autoFocus
+                placeholder="Search Tamil Nadu, Kerala, Goa, Karnataka..."
+                className="w-full bg-transparent text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none"
               />
             </div>
 
-            {/* Country List */}
+            {/* State / Country List */}
             <div className="overflow-y-auto max-h-72 p-1.5 space-y-0.5">
               {filteredCountries.map((c) => {
                 const isSelected = selectedCountry.code === c.code;
@@ -151,11 +234,11 @@ export const ControlsDock: React.FC<ControlsDockProps> = ({
                         : 'text-slate-200 hover:bg-slate-800'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5">
-                      <span className="text-lg leading-none">{c.flag}</span>
+                    <div className="flex items-center gap-2.5 text-left">
+                      <span className="text-base leading-none shrink-0">{c.flag}</span>
                       <span>{c.name}</span>
                     </div>
-                    {isSelected && <Check size={14} className="stroke-[3]" />}
+                    {isSelected && <Check size={14} className="stroke-[3] shrink-0" />}
                   </button>
                 );
               })}

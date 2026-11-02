@@ -83,15 +83,17 @@ export function validatePasswordInput(passwordRaw: unknown): { valid: boolean; p
 export function validateMatchQueuePrefs(raw: Record<string, unknown>) {
   const name = sanitizeString(raw.name, 32) || 'Stranger';
   const emailCheck = validateEmailInput(raw.email);
-  const countryCodeRaw = sanitizeString(raw.countryCode, 3).toUpperCase();
-  const countryCode = /^[A-Z]{2,3}$/.test(countryCodeRaw) ? countryCodeRaw : 'US';
-  const countryName = sanitizeString(raw.countryName, 48) || 'United States';
-  const flag = sanitizeString(raw.flag, 8) || '🇺🇸';
+  const countryCodeRaw = sanitizeString(raw.countryCode, 8).toUpperCase();
+  const countryCode = /^[A-Z]{2,3}(-[A-Z0-9]{2,3})?$/.test(countryCodeRaw) ? countryCodeRaw : 'IN';
+  const countryName = sanitizeString(raw.countryName, 64) || 'India';
+  const flag = sanitizeString(raw.flag, 8) || '🇮🇳';
   const genderRaw = sanitizeString(raw.gender, 10).toLowerCase();
   const gender = (ALLOWED_GENDERS.has(genderRaw) ? genderRaw : 'guy') as 'guy' | 'girl' | 'couple';
-  const prefCountryRaw = sanitizeString(raw.preferredCountry, 4).toUpperCase();
+  const prefCountryRaw = sanitizeString(raw.preferredCountry, 8).toUpperCase();
   const preferredCountry =
-    prefCountryRaw === 'ALL' || /^[A-Z]{2,3}$/.test(prefCountryRaw) ? prefCountryRaw : 'ALL';
+    prefCountryRaw === 'ALL' || /^[A-Z]{2,3}(-[A-Z0-9]{2,3})?$/.test(prefCountryRaw)
+      ? prefCountryRaw
+      : 'ALL';
   const deviceFingerprint = sanitizeString(raw.deviceFingerprint, 32);
 
   return {

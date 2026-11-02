@@ -7,28 +7,67 @@ export interface CountryInfo {
   code: string;
   name: string;
   flag: string;
+  category?: 'all' | 'india_state' | 'india_ut' | 'global';
 }
 
 export const COUNTRIES: CountryInfo[] = [
-  { code: 'ALL', name: 'All countries', flag: '🌐' },
-  { code: 'US', name: 'United States', flag: '🇺🇸' },
-  { code: 'GB', name: 'United Kingdom', flag: '🇬🇧' },
-  { code: 'CA', name: 'Canada', flag: '🇨🇦' },
-  { code: 'DE', name: 'Germany', flag: '🇩🇪' },
-  { code: 'FR', name: 'France', flag: '🇫🇷' },
-  { code: 'JP', name: 'Japan', flag: '🇯🇵' },
-  { code: 'KR', name: 'South Korea', flag: '🇰🇷' },
-  { code: 'BR', name: 'Brazil', flag: '🇧🇷' },
-  { code: 'IN', name: 'India', flag: '🇮🇳' },
-  { code: 'IT', name: 'Italy', flag: '🇮🇹' },
-  { code: 'ES', name: 'Spain', flag: '🇪🇸' },
-  { code: 'MX', name: 'Mexico', flag: '🇲🇽' },
-  { code: 'AU', name: 'Australia', flag: '🇦🇺' },
-  { code: 'NL', name: 'Netherlands', flag: '🇳🇱' },
-  { code: 'SE', name: 'Sweden', flag: '🇸🇪' },
-  { code: 'TR', name: 'Turkey', flag: '🇹🇷' },
-  { code: 'PL', name: 'Poland', flag: '🇵🇱' },
-  { code: 'UA', name: 'Ukraine', flag: '🇺🇦' },
+  { code: 'ALL', name: 'All India & Worldwide', flag: '🌐', category: 'all' },
+  { code: 'IN', name: 'India (All States & UTs)', flag: '🇮🇳', category: 'india_state' },
+
+  // --- 28 STATES OF INDIA (Featured South & Popular first, then alphabetical) ---
+  { code: 'IN-TN', name: 'Tamil Nadu', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-KL', name: 'Kerala', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-KA', name: 'Karnataka', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-GA', name: 'Goa', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-AP', name: 'Andhra Pradesh', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-TG', name: 'Telangana', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-MH', name: 'Maharashtra', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-AR', name: 'Arunachal Pradesh', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-AS', name: 'Assam', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-BR', name: 'Bihar', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-CT', name: 'Chhattisgarh', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-GJ', name: 'Gujarat', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-HR', name: 'Haryana', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-HP', name: 'Himachal Pradesh', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-JH', name: 'Jharkhand', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-MP', name: 'Madhya Pradesh', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-MN', name: 'Manipur', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-ML', name: 'Meghalaya', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-MZ', name: 'Mizoram', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-NL', name: 'Nagaland', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-OR', name: 'Odisha', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-PB', name: 'Punjab', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-RJ', name: 'Rajasthan', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-SK', name: 'Sikkim', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-TR', name: 'Tripura', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-UP', name: 'Uttar Pradesh', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-UK', name: 'Uttarakhand', flag: '🇮🇳', category: 'india_state' },
+  { code: 'IN-WB', name: 'West Bengal', flag: '🇮🇳', category: 'india_state' },
+
+  // --- 8 UNION TERRITORIES OF INDIA ---
+  { code: 'IN-PY', name: 'Puducherry (Pondicherry) [UT]', flag: '🇮🇳', category: 'india_ut' },
+  { code: 'IN-DL', name: 'Delhi (NCT) [UT]', flag: '🇮🇳', category: 'india_ut' },
+  { code: 'IN-AN', name: 'Andaman & Nicobar Islands [UT]', flag: '🇮🇳', category: 'india_ut' },
+  { code: 'IN-CH', name: 'Chandigarh [UT]', flag: '🇮🇳', category: 'india_ut' },
+  { code: 'IN-DN', name: 'Dadra & Nagar Haveli and Daman & Diu [UT]', flag: '🇮🇳', category: 'india_ut' },
+  { code: 'IN-JK', name: 'Jammu & Kashmir [UT]', flag: '🇮🇳', category: 'india_ut' },
+  { code: 'IN-LA', name: 'Ladakh [UT]', flag: '🇮🇳', category: 'india_ut' },
+  { code: 'IN-LD', name: 'Lakshadweep [UT]', flag: '🇮🇳', category: 'india_ut' },
+
+  // --- GLOBAL COUNTRIES ---
+  { code: 'US', name: 'United States', flag: '🇺🇸', category: 'global' },
+  { code: 'GB', name: 'United Kingdom', flag: '🇬🇧', category: 'global' },
+  { code: 'CA', name: 'Canada', flag: '🇨🇦', category: 'global' },
+  { code: 'AE', name: 'United Arab Emirates', flag: '🇦🇪', category: 'global' },
+  { code: 'SG', name: 'Singapore', flag: '🇸🇬', category: 'global' },
+  { code: 'MY', name: 'Malaysia', flag: '🇲🇾', category: 'global' },
+  { code: 'LK', name: 'Sri Lanka', flag: '🇱🇰', category: 'global' },
+  { code: 'AU', name: 'Australia', flag: '🇦🇺', category: 'global' },
+  { code: 'DE', name: 'Germany', flag: '🇩🇪', category: 'global' },
+  { code: 'FR', name: 'France', flag: '🇫🇷', category: 'global' },
+  { code: 'JP', name: 'Japan', flag: '🇯🇵', category: 'global' },
+  { code: 'KR', name: 'South Korea', flag: '🇰🇷', category: 'global' },
+  { code: 'BR', name: 'Brazil', flag: '🇧🇷', category: 'global' },
 ];
 
 export interface StrangerProfile {
