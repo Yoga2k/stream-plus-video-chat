@@ -735,28 +735,95 @@ app.get('/robots.txt', (req: Request, res: Response) => {
   res.type('text/plain').send(robotsTxt);
 });
 
+const SEO_LANDING_ROUTES: Record<
+  string,
+  { priority: string; title: string; description: string; h1: string }
+> = {
+  '/': {
+    priority: '1.0',
+    title: 'Stream+ (StreamPlus) — #1 Free Online Video Call, Stream+ Video Call & Random Video Chat',
+    description:
+      'Stream+ (StreamPlus) is the #1 free online video call and random video chat app. Start an instant Stream+ video call with strangers worldwide in HD webcam & live text chat.',
+    h1: 'Stream+ (StreamPlus) — #1 Free Online Video Call, Stream+ Video Call & Random Video Chat',
+  },
+  '/streamplus': {
+    priority: '0.98',
+    title: 'StreamPlus (Stream+) Official — Free Online Video Call & Live Random Video Chat',
+    description:
+      'Welcome to StreamPlus (Stream+), the official #1 free online video call and random video chat platform. Connect instantly via HD WebRTC webcam chat.',
+    h1: 'StreamPlus (Stream+) Official — Free Online Video Call & Live Video Chat',
+  },
+  '/stream-plus-video-call': {
+    priority: '0.98',
+    title: 'Stream+ Video Call — Free Instant HD Online Video Call with Strangers',
+    description:
+      'Start a free Stream+ video call (StreamPlus video call) right in your browser. Instant 1-on-1 HD online video call and live text chat with real people.',
+    h1: 'Stream+ Video Call — Free Instant HD Online Video Call with Strangers',
+  },
+  '/online-video-call': {
+    priority: '0.98',
+    title: 'Online Video Call Free — Instant Random Online Video Call on Stream+ (StreamPlus)',
+    description:
+      'Looking for a free online video call? Join Stream+ (StreamPlus) to start an instant HD online video call with strangers in India and worldwide.',
+    h1: 'Free Online Video Call — Instant HD Random Video Call on Stream+',
+  },
+  '/random-video-call': {
+    priority: '0.95',
+    title: 'Random Video Call Online — Talk to Strangers Live on Stream+ (StreamPlus)',
+    description:
+      'Make a free random video call online with real people around the world on Stream+ (StreamPlus). Safe, fast peer-to-peer WebRTC video calling.',
+    h1: 'Random Video Call Online — Free Live Video Call on Stream+',
+  },
+  '/tamil-video-chat': {
+    priority: '0.95',
+    title: 'Tamil Video Call & Tamil Video Chat — Free Online Video Call on Stream+',
+    description:
+      'Join Tamil video call and live Tamil random video chat on Stream+ (StreamPlus). Connect with Tamil friends in Chennai, Tamil Nadu, and worldwide for free.',
+    h1: 'Tamil Video Call & Tamil Random Video Chat — Stream+ (StreamPlus)',
+  },
+  '/india-random-chat': {
+    priority: '0.95',
+    title: 'India Online Video Call & India Random Video Chat — Stream+ (StreamPlus)',
+    description:
+      'Free India online video call and random video chat on Stream+ (StreamPlus). Meet new friends across India with instant HD webcam chat.',
+    h1: 'India Online Video Call & Random Video Chat — Stream+ India',
+  },
+  '/talk-to-strangers': {
+    priority: '0.90',
+    title: 'Talk to Strangers — Free Online Video Call & Random Video Chat on Stream+',
+    description:
+      'Talk to strangers online via free HD video call and text chat on Stream+ (StreamPlus). Instant matchmaking with country and gender filters.',
+    h1: 'Talk to Strangers — Free Online Video Call & Live Video Chat',
+  },
+  '/ometv-alternative': {
+    priority: '0.90',
+    title: 'Best OmeTV & Omegle Alternative — Stream+ (StreamPlus) Online Video Call',
+    description:
+      'Stream+ (StreamPlus) is the #1 safe and fast OmeTV & Omegle alternative for free online video calls and random webcam chat with strangers.',
+    h1: 'Best OmeTV & Omegle Alternative — Stream+ Online Video Call',
+  },
+  '/free-webcam-chat': {
+    priority: '0.90',
+    title: 'Free Webcam Chat & Online Video Call — Stream+ (StreamPlus)',
+    description:
+      'Start a free webcam chat and online video call on Stream+ (StreamPlus) with zero downloads required. Works on Android, iOS, and PC.',
+    h1: 'Free Webcam Chat & Instant Online Video Call — Stream+',
+  },
+};
+
 app.get('/sitemap.xml', (req: Request, res: Response) => {
   const host = req.headers.host || `localhost:${PORT}`;
   const protocol = req.headers['x-forwarded-proto'] || 'http';
   const baseUrl = `${protocol}://${host}`;
   const today = new Date().toISOString().split('T')[0];
 
-  const seoPaths = [
-    { path: '/', priority: '1.0' },
-    { path: '/tamil-video-chat', priority: '0.9' },
-    { path: '/india-random-chat', priority: '0.9' },
-    { path: '/talk-to-strangers', priority: '0.9' },
-    { path: '/ometv-alternative', priority: '0.85' },
-    { path: '/free-webcam-chat', priority: '0.85' },
-  ];
-
-  const urlEntries = seoPaths
+  const urlEntries = Object.entries(SEO_LANDING_ROUTES)
     .map(
-      (item) => `  <url>
-    <loc>${baseUrl}${item.path}</loc>
+      ([routePath, meta]) => `  <url>
+    <loc>${baseUrl}${routePath}</loc>
     <lastmod>${today}</lastmod>
     <changefreq>daily</changefreq>
-    <priority>${item.priority}</priority>
+    <priority>${meta.priority}</priority>
   </url>`
     )
     .join('\n');
@@ -901,9 +968,43 @@ async function startServer() {
   } else {
     const distPath = path.join(__dirname, 'dist');
     if (fs.existsSync(distPath)) {
-      app.use(express.static(distPath));
-      app.get('*', (_req: Request, res: Response) => {
-        res.sendFile(path.join(distPath, 'index.html'));
+      const baseIndexHtml = fs.readFileSync(path.join(distPath, 'index.html'), 'utf-8');
+      app.use(express.static(distPath, { index: false }));
+      app.get('*', (req: Request, res: Response) => {
+        const cleanPath = req.path === '/' ? '/' : req.path.replace(/\/+$/, '');
+        const seoMeta = SEO_LANDING_ROUTES[cleanPath];
+        if (!seoMeta) {
+          res.type('text/html').send(baseIndexHtml);
+          return;
+        }
+        const host = req.headers.host || 'stream-plus-video-chat.onrender.com';
+        const protocol = req.headers['x-forwarded-proto'] || 'https';
+        const canonicalUrl = `${protocol}://${host}${cleanPath === '/' ? '/' : cleanPath}`;
+        const safeTitle = seoMeta.title.replace(/&/g, '&amp;');
+        const safeDesc = seoMeta.description.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+        const safeH1 = seoMeta.h1.replace(/&/g, '&amp;');
+
+        const customizedHtml = baseIndexHtml
+          .replace(/<title>[\s\S]*?<\/title>/i, `<title>${safeTitle}</title>`)
+          .replace(
+            /<meta\s+name="description"\s+content="[^"]*"\s*\/>/i,
+            `<meta name="description" content="${safeDesc}" />`
+          )
+          .replace(
+            /<link\s+rel="canonical"\s+href="[^"]*"\s*\/>/i,
+            `<link rel="canonical" href="${canonicalUrl}" />`
+          )
+          .replace(
+            /<meta\s+property="og:title"\s+content="[^"]*"\s*\/>/i,
+            `<meta property="og:title" content="${safeTitle}" />`
+          )
+          .replace(
+            /<meta\s+property="og:url"\s+content="[^"]*"\s*\/>/i,
+            `<meta property="og:url" content="${canonicalUrl}" />`
+          )
+          .replace(/<h1>[\s\S]*?<\/h1>/i, `<h1>${safeH1}</h1>`);
+
+        res.type('text/html').send(customizedHtml);
       });
     }
   }
