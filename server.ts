@@ -809,6 +809,48 @@ const SEO_LANDING_ROUTES: Record<
       'Start a free webcam chat and online video call on Stream+ (StreamPlus) with zero downloads required. Works on Android, iOS, and PC.',
     h1: 'Free Webcam Chat & Instant Online Video Call — Stream+',
   },
+  '/stream-plus': {
+    priority: '0.98',
+    title: 'Stream Plus (Stream+ / StreamPlus) — Free Online Video Call & Live Video Chat',
+    description:
+      'Stream Plus (Stream+ / StreamPlus) is the #1 free online video call and random video chat app to talk to strangers worldwide in HD.',
+    h1: 'Stream Plus (Stream+ / StreamPlus) — Free Online Video Call & Video Chat',
+  },
+  '/live-video-call': {
+    priority: '0.95',
+    title: 'Live Video Call Online — Free Instant HD Live Video Call on Stream+ (StreamPlus)',
+    description:
+      'Connect via free live video call online on Stream+ (StreamPlus). Instant 1-on-1 HD webcam call and text chat with strangers.',
+    h1: 'Live Video Call Online — Free Instant HD Video Call on Stream+',
+  },
+  '/free-video-call': {
+    priority: '0.95',
+    title: 'Free Video Call Online — Instant Free Online Video Call on Stream+ (StreamPlus)',
+    description:
+      'Make a 100% free video call online with people worldwide on Stream+ (StreamPlus). Fast WebRTC video calling with no app download.',
+    h1: 'Free Video Call Online — Instant 1-on-1 Video Call on Stream+',
+  },
+  '/stranger-video-call': {
+    priority: '0.95',
+    title: 'Stranger Video Call — Free Online Video Call with Strangers on Stream+',
+    description:
+      'Start a free stranger video call and talk to strangers online in HD on Stream+ (StreamPlus). Safe AI-moderated random video calling.',
+    h1: 'Stranger Video Call — Free Online Video Call with Strangers',
+  },
+  '/tamil-video-call': {
+    priority: '0.95',
+    title: 'Tamil Video Call — Free Tamil Online Video Call & Live Chat on Stream+',
+    description:
+      'Start a free Tamil video call and Tamil online video chat on Stream+ (StreamPlus). Meet Tamil friends across Tamil Nadu and worldwide.',
+    h1: 'Tamil Video Call — Free Tamil Online Video Call on Stream+',
+  },
+  '/india-video-call': {
+    priority: '0.95',
+    title: 'India Video Call — Free Online Video Call India on Stream+ (StreamPlus)',
+    description:
+      'Free India video call and Indian online video chat on Stream+ (StreamPlus). Connect instantly with users across India in HD.',
+    h1: 'India Video Call — Free Online Video Call India on Stream+',
+  },
 };
 
 app.get('/sitemap.xml', (req: Request, res: Response) => {
