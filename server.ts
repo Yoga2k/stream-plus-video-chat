@@ -123,6 +123,8 @@ wss.on('connection', (ws: WebSocket & { hostLabel?: string }) => {
     switch (msg.type) {
       case 'update_profile': {
         const cleanPrefs = validateMatchQueuePrefs(msg);
+        if (cleanPrefs.deviceFingerprint) fingerprintByUserId.set(userId, cleanPrefs.deviceFingerprint);
+        if (cleanPrefs.email) emailByUserId.set(userId, cleanPrefs.email);
         matchmaker.updateUserMeta(userId, cleanPrefs);
         break;
       }
@@ -336,44 +338,28 @@ wss.on('connection', (ws: WebSocket & { hostLabel?: string }) => {
         const fp =
           (typeof msg.deviceFingerprint === 'string' && msg.deviceFingerprint) ||
           fingerprintByUserId.get(userId) ||
-          'FP-NSFW-AUTO';
-        const offenderEmail = emailByUserId.get(userId);
-        dbStore.addBan(fp, offenderEmail, String(msg.reason || 'AI NSFW Violation'));
-
-        const { formerPartnerId } = matchmaker.banUserById(userId, 60 * 60 * 1000);
-        if (formerPartnerId) {
-          sendJson(sockets.get(formerPartnerId), {
-            type: 'partner_left',
-            reason: 'disconnected',
-          });
-        }
+          'FP-FLAGGED';
 
         const rawScreenshot =
           typeof msg.screenshot === 'string' && msg.screenshot.startsWith('data:image/')
             ? msg.screenshot
             : undefined;
 
+        // Log for human admin review without automatically banning innocent mobile users
         saveScreenshotToBucket(rawScreenshot, 'nsfw').then((bucketUrl) => {
           dbStore.addReport({
             id: `nsfw-${Date.now()}`,
             timestamp: new Date().toISOString(),
-            reporterId: 'AI-NSFWJS-GUARD',
-            reporterName: '🤖 Browser AI NSFW Scanner',
+            reporterId: 'AI-FLAG',
+            reporterName: 'AI Safety Flag',
             reportedId: userId,
             reportedName: offender?.name || 'User',
-            reason: String(msg.reason || 'AI Auto-Nudity / NSFW Detection Triggered'),
+            reason: String(msg.reason || 'Safety flag for review'),
             screenshot: bucketUrl,
             deviceFingerprint: fp,
-            autoBanned: true,
+            autoBanned: false,
           });
         });
-
-        sendJson(ws, {
-          type: 'error_notice',
-          message:
-            '🚫 AI NSFW AUTO-BAN: Nudity or prohibited content was detected on your camera. Your Device ID & Account are now banned.',
-        });
-        broadcastStats();
         break;
       }
 
@@ -668,8 +654,8 @@ app.post('/api/admin/moderate', requireAdminAuth, (req: Request, res: Response) 
 
   if (action === 'warn') {
     sendJson(targetWs, {
-      type: 'error_notice',
-      message: `🚨 ADMIN CCTV SECURITY WARNING: ${reason}. Continued violation will result in an immediate permanent ban.`,
+      type: 'admin_warning',
+      message: `🚨 ADMIN SECURITY WARNING: ${reason}. Continued violation will result in a permanent ban.`,
     });
     return res.json({ ok: true, action: 'warn', targetId });
   }
@@ -735,6 +721,11 @@ app.post('/api/admin/unban', requireAdminAuth, (req: Request, res: Response) => 
   return res.json({ ok: true, unbanned: true, fingerprint, email });
 });
 
+app.post('/api/admin/unban-all', requireAdminAuth, (_req: Request, res: Response) => {
+  dbStore.clearAllBans();
+  return res.json({ ok: true, cleared: true });
+});
+
 app.post('/api/admin/report/dismiss', requireAdminAuth, (req: Request, res: Response) => {
   const reportId = sanitizeString(req.body?.reportId, 64);
   if (reportId) {
@@ -777,6 +768,13 @@ app.post('/api/admin/direct-call', requireAdminAuth, (req: Request, res: Respons
   }
 
   const effectiveAdminId = adminUserId || 'admin-live-call';
+  const adminWs = sockets.get(effectiveAdminId);
+  const targetWs = sockets.get(targetUserId);
+
+  if (!adminWs) {
+    return res.status(400).json({ error: 'Admin WebSocket not connected yet. Please wait 2 seconds and try again.' });
+  }
+
   const adminUser = matchmaker.getUser(effectiveAdminId) || matchmaker.registerUser(effectiveAdminId, {
     name: 'Security Admin',
     countryCode: 'IN',
@@ -789,9 +787,6 @@ app.post('/api/admin/direct-call', requireAdminAuth, (req: Request, res: Respons
   adminUser.status = 'connected';
   targetUser.partnerId = effectiveAdminId;
   targetUser.status = 'connected';
-
-  const adminWs = sockets.get(effectiveAdminId);
-  const targetWs = sockets.get(targetUserId);
 
   sendJson(adminWs, {
     type: 'match_found',

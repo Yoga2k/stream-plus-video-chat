@@ -76,13 +76,24 @@ export class StreamPlusDatabase {
       const raw = fs.readFileSync(DB_FILE_PATH, 'utf-8');
       const parsed = JSON.parse(raw) as Partial<PersistentDbSchema>;
 
+      const GENERIC_FALSE_FINGERPRINTS = new Set([
+        'FP-2908-A549-BEBE',
+        'FP-STD0-9001-SAFE',
+        'FP-NSFW-AUTO',
+        'FP-UNKNOWN',
+      ]);
+
       if (parsed.accounts) {
         for (const [email, acc] of Object.entries(parsed.accounts)) {
           this.accounts.set(email.toLowerCase(), acc);
         }
       }
       if (Array.isArray(parsed.bannedFingerprints)) {
-        parsed.bannedFingerprints.forEach((fp) => this.bannedFingerprints.add(fp));
+        parsed.bannedFingerprints.forEach((fp) => {
+          if (!GENERIC_FALSE_FINGERPRINTS.has(fp)) {
+            this.bannedFingerprints.add(fp);
+          }
+        });
       }
       if (Array.isArray(parsed.bannedEmails)) {
         parsed.bannedEmails.forEach((em) => this.bannedEmails.add(em.toLowerCase()));
@@ -91,7 +102,7 @@ export class StreamPlusDatabase {
         this.reports = parsed.reports.slice(0, 100);
       }
       if (Array.isArray(parsed.bannedList)) {
-        this.bannedList = parsed.bannedList;
+        this.bannedList = parsed.bannedList.filter((b) => !GENERIC_FALSE_FINGERPRINTS.has(b.fingerprint));
       }
     } catch {}
   }
@@ -204,9 +215,28 @@ export class StreamPlusDatabase {
 
   // Ban Methods (Device Fingerprint + Email)
   public isBanned(deviceFingerprint?: string, email?: string): boolean {
-    if (deviceFingerprint && this.bannedFingerprints.has(deviceFingerprint)) return true;
+    if (
+      deviceFingerprint &&
+      deviceFingerprint !== 'FP-2908-A549-BEBE' &&
+      deviceFingerprint !== 'FP-STD0-9001-SAFE' &&
+      deviceFingerprint !== 'FP-NSFW-AUTO' &&
+      this.bannedFingerprints.has(deviceFingerprint)
+    ) {
+      return true;
+    }
     if (email && this.bannedEmails.has(email.toLowerCase())) return true;
     return false;
+  }
+
+  public clearAllBans(): void {
+    this.bannedFingerprints.clear();
+    this.bannedEmails.clear();
+    this.bannedList = [];
+    this.saveToLocalDisk();
+
+    if (this.mongoConnected && this.mongoDb) {
+      this.mongoDb.collection('bans').deleteMany({}).catch(() => {});
+    }
   }
 
   public addBan(deviceFingerprint?: string, email?: string, reason: string = 'Policy violation'): void {

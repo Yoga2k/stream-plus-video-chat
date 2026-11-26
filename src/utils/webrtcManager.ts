@@ -39,6 +39,7 @@ export interface DiagnosticLogEntry {
 }
 
 export interface WebRTCCallbacks {
+  onWelcome?: (userId: string) => void;
   onStatsUpdate: (stats: LiveStats) => void;
   onSearching: () => void;
   onMatchFound: (partner: PeerPartnerInfo, role: 'caller' | 'callee') => void;
@@ -48,6 +49,8 @@ export interface WebRTCCallbacks {
   onPartnerTyping: (isTyping: boolean) => void;
   onPartnerLiked: () => void;
   onErrorNotice: (message: string) => void;
+  onAdminMute?: (muted: boolean, message: string) => void;
+  onAdminNotice?: (message: string) => void;
   onDiagnosticsChange?: (diag: DiagnosticsSnapshot) => void;
   onDiagnosticLog?: (entry: DiagnosticLogEntry) => void;
 }
@@ -83,6 +86,13 @@ export class WebRTCManager {
   private myUserId = '';
   private lastError: string | null = null;
   private ipPrivacyShield = true;
+  private reconnectAttempts = 0;
+  private handleOnlineBound = () => {
+    if (!this.isDestroyed && (!this.ws || this.ws.readyState === WebSocket.CLOSED)) {
+      this.reconnectAttempts = 0;
+      this.connectSignaling();
+    }
+  };
 
   public setIpPrivacyShield(enabled: boolean) {
     this.ipPrivacyShield = enabled;
@@ -90,6 +100,9 @@ export class WebRTCManager {
 
   constructor(callbacks: WebRTCCallbacks) {
     this.callbacks = callbacks;
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', this.handleOnlineBound);
+    }
     this.connectSignaling();
   }
 
@@ -144,6 +157,10 @@ export class WebRTCManager {
 
   public connectSignaling() {
     if (this.isDestroyed || typeof window === 'undefined') return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      this.log('warn', 'Browser is offline — waiting for network connection...');
+      return;
+    }
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
@@ -165,6 +182,7 @@ export class WebRTCManager {
         clearTimeout(this.reconnectTimer);
         this.reconnectTimer = null;
       }
+      this.reconnectAttempts = 0;
       this.lastError = null;
       this.log('info', `WebSocket connected on ${window.location.host}`);
     };
@@ -185,6 +203,7 @@ export class WebRTCManager {
         case 'welcome': {
           this.myUserId = data.userId || '';
           this.log('info', `Registered session ${this.myUserId.slice(0, 8)} on ${data.hostLabel || window.location.host}`);
+          this.callbacks.onWelcome?.(this.myUserId);
           this.callbacks.onStatsUpdate({
             onlineCount: Number(data.onlineCount) || 1,
             searchingCount: Number(data.searchingCount) || 0,
@@ -270,9 +289,25 @@ export class WebRTCManager {
               track.enabled = !isMuted;
             });
           }
-          this.callbacks.onErrorNotice(
-            data.message || (isMuted ? '🔇 Microphone muted by Admin' : '🔊 Microphone unmuted by Admin')
-          );
+          const msg =
+            data.message ||
+            (isMuted ? '🔇 Microphone muted by Admin' : '🔊 Microphone unmuted by Admin');
+          if (this.callbacks.onAdminMute) {
+            this.callbacks.onAdminMute(isMuted, msg);
+          } else {
+            this.callbacks.onAdminNotice?.(msg);
+          }
+          break;
+        }
+
+        case 'admin_warning': {
+          const msg = data.message || '🚨 Warning from Stream+ Admin.';
+          this.log('warn', msg);
+          if (this.callbacks.onAdminNotice) {
+            this.callbacks.onAdminNotice(msg);
+          } else {
+            this.callbacks.onErrorNotice(msg);
+          }
           break;
         }
 
@@ -285,17 +320,22 @@ export class WebRTCManager {
     };
 
     this.ws.onclose = () => {
-      this.log('warn', 'WebSocket closed. Reconnecting in 2s...');
+      this.log('warn', 'WebSocket closed. Reconnecting...');
       this.scheduleReconnect();
     };
   }
 
   private scheduleReconnect() {
     if (this.isDestroyed || this.reconnectTimer) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      return; // Will auto-reconnect via window 'online' event
+    }
+    this.reconnectAttempts = Math.min(this.reconnectAttempts + 1, 5);
+    const delayMs = Math.min(10000, this.reconnectAttempts * 2000);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connectSignaling();
-    }, 2000);
+    }, delayMs);
   }
 
   private sendSignaling(payload: Record<string, unknown>) {
@@ -562,6 +602,28 @@ export class WebRTCManager {
     });
   }
 
+  public updateProfile(prefs: {
+    name: string;
+    email?: string;
+    countryCode: string;
+    countryName: string;
+    flag: string;
+    gender: 'guy' | 'girl' | 'couple';
+    preferredCountry: string;
+  }) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.sendSignaling({
+        type: 'update_profile',
+        ...prefs,
+        deviceFingerprint: getDeviceFingerprint(),
+      });
+    }
+  }
+
+  public isConnected(): boolean {
+    return Boolean(this.ws && this.ws.readyState === WebSocket.OPEN);
+  }
+
   public sendCctvFrame(frame: string) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.sendSignaling({
@@ -577,6 +639,9 @@ export class WebRTCManager {
 
   public destroy() {
     this.isDestroyed = true;
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', this.handleOnlineBound);
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
     }

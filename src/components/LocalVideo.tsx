@@ -15,8 +15,6 @@ import {
 } from 'lucide-react';
 import {
   checkVirtualCameras,
-  scanVideoFrameForNsfw,
-  captureVideoScreenshot,
   detectHumanFaceInFrame,
 } from '../utils/securityGuard.ts';
 
@@ -26,7 +24,6 @@ interface LocalVideoProps {
   onToggleMic: () => void;
   onToggleVideo: () => void;
   onStreamReady: (stream: MediaStream | null) => void;
-  onNsfwAutoBan?: (reason: string, screenshot: string | null) => void;
   onFaceDetectedChange?: (detected: boolean) => void;
   userName?: string;
 }
@@ -37,7 +34,6 @@ export const LocalVideo: React.FC<LocalVideoProps> = ({
   onToggleMic,
   onToggleVideo,
   onStreamReady,
-  onNsfwAutoBan,
   onFaceDetectedChange,
   userName = 'You',
 }) => {
@@ -52,9 +48,8 @@ export const LocalVideo: React.FC<LocalVideoProps> = ({
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [isDarkFrameWarning, setIsDarkFrameWarning] = useState<boolean>(false);
 
-  // OmeTV Security & AI Moderation States
+  // OmeTV Security States
   const [virtualCamBlocked, setVirtualCamBlocked] = useState<string | null>(null);
-  const [nsfwAutoBlurred, setNsfwAutoBlurred] = useState<boolean>(false);
   const [faceDetected, setFaceDetected] = useState<boolean>(false);
   const [faceStatusReason, setFaceStatusReason] = useState<string>('Show your face in camera');
 
@@ -208,28 +203,6 @@ export const LocalVideo: React.FC<LocalVideoProps> = ({
     }
   }, [micMuted, videoMuted]);
 
-  // Browser-Based AI Auto-Nudity / NSFW Frame Scanner (Runs silently every 3 seconds in browser)
-  useEffect(() => {
-    if (videoMuted || nsfwAutoBlurred || virtualCamBlocked) return;
-
-    const scanTimer = setInterval(() => {
-      const targetEl = hasRealStream ? videoRef.current : fallbackCanvasRef.current;
-      const result = scanVideoFrameForNsfw(targetEl, false);
-
-      if (result.flagged) {
-        // 1-Second Instant Video Blur + Auto-Ban
-        setNsfwAutoBlurred(true);
-        const screenshot = captureVideoScreenshot(targetEl);
-        onNsfwAutoBan?.(
-          result.reason || 'AI NSFW Guard detected nudity/inappropriate video content',
-          screenshot
-        );
-      }
-    }, 3000);
-
-    return () => clearInterval(scanTimer);
-  }, [hasRealStream, videoMuted, nsfwAutoBlurred, virtualCamBlocked, onNsfwAutoBan]);
-
   const handleSwitchCamera = () => {
     if (videoDevices.length <= 1) return;
     const currentIndex = videoDevices.findIndex((d) => d.deviceId === selectedDeviceId);
@@ -262,15 +235,16 @@ export const LocalVideo: React.FC<LocalVideoProps> = ({
         muted
         className={`w-full h-full object-cover -scale-x-100 transition-all duration-300 ${
           hasRealStream && !videoMuted ? 'block' : 'hidden'
-        } ${nsfwAutoBlurred ? 'blur-2xl scale-110 brightness-50' : blurBackground ? 'blur-xs' : ''}`}
+        } ${blurBackground ? 'blur-xs' : ''}`}
       />
 
       {/* Synthetic WebRTC Fallback Canvas */}
       <canvas
+        id="stream-local-canvas"
         ref={fallbackCanvasRef}
         className={`w-full h-full object-cover transition-all duration-300 ${
           !hasRealStream && !videoMuted ? 'block' : 'hidden'
-        } ${nsfwAutoBlurred ? 'blur-2xl scale-110 brightness-50' : ''}`}
+        }`}
       />
 
       {/* Fake / Virtual Camera Blocked Overlay (OBS / ManyCam Protection) */}
@@ -285,26 +259,6 @@ export const LocalVideo: React.FC<LocalVideoProps> = ({
             tools (OBS, ManyCam, Virtual Camera) are strictly prohibited on Stream+. Please select a
             real hardware webcam.
           </p>
-        </div>
-      )}
-
-      {/* AI NSFW 1-Second Auto-Blur & Auto-Ban Overlay */}
-      {nsfwAutoBlurred && (
-        <div className="absolute inset-0 z-30 bg-red-950/85 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center">
-          <ShieldAlert size={42} className="text-red-400 mb-2 animate-bounce" />
-          <h3 className="text-base font-black text-white uppercase tracking-wide">
-            🚫 AI NSFW Guard: Video Blurred &amp; Auto-Banned
-          </h3>
-          <p className="text-xs text-red-200 max-w-sm mt-1">
-            Our browser-side AI NSFW scanner detected prohibited content. Your camera was blurred in
-            1 second and your Device Fingerprint ID has been flagged.
-          </p>
-          <button
-            onClick={() => setNsfwAutoBlurred(false)}
-            className="mt-3 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-bold text-slate-200 border border-red-500/40"
-          >
-            Reset AI NSFW Demo State
-          </button>
         </div>
       )}
 

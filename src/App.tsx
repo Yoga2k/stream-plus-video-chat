@@ -82,6 +82,7 @@ export default function App() {
   const [isRulesModalOpen, setIsRulesModalOpen] = useState<boolean>(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
   const [localStreamState, setLocalStreamState] = useState<MediaStream | null>(null);
+  const [myUserId, setMyUserId] = useState<string>('');
 
   const webrtcRef = useRef<WebRTCManager | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -108,6 +109,9 @@ export default function App() {
   // Initialize Real WebRTC + WebSocket Manager (100% Real P2P - No Bots)
   useEffect(() => {
     const manager = new WebRTCManager({
+      onWelcome: (id) => {
+        setMyUserId(id);
+      },
       onStatsUpdate: (stats) => {
         setOnlineCount(stats.onlineCount);
         setActiveRooms(stats.activeRooms);
@@ -190,6 +194,29 @@ export default function App() {
         setLikeCount((prev) => prev + 1);
         setIncomingLikeTrigger(Date.now());
       },
+      onAdminMute: (muted, message) => {
+        setMicMuted(muted);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `mute-${Date.now()}`,
+            sender: 'system',
+            text: message,
+            time: formatMessageTime(),
+          },
+        ]);
+      },
+      onAdminNotice: (message) => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `adm-${Date.now()}`,
+            sender: 'system',
+            text: message,
+            time: formatMessageTime(),
+          },
+        ]);
+      },
       onErrorNotice: (message) => {
         setStatus('stopped');
         setMessages([
@@ -214,6 +241,22 @@ export default function App() {
     };
   }, []);
 
+  // Keep server synced with our display name, email, country & device fingerprint even while idle in lobby
+  useEffect(() => {
+    if (!myUserId) return;
+    const activeRegion =
+      selectedCountry.code !== 'ALL' ? selectedCountry : myCountry;
+    webrtcRef.current?.updateProfile({
+      name: userProfile?.name || defaultGuestName,
+      email: userProfile?.email,
+      countryCode: activeRegion.code,
+      countryName: activeRegion.name,
+      flag: activeRegion.flag,
+      gender,
+      preferredCountry: selectedCountry.code,
+    });
+  }, [myUserId, userProfile?.name, userProfile?.email, selectedCountry, myCountry, gender]);
+
   useEffect(() => {
     sounds.enabled = soundEnabled;
   }, [soundEnabled]);
@@ -225,8 +268,11 @@ export default function App() {
     let canvas: HTMLCanvasElement | null = null;
     const frameTimer = setInterval(() => {
       try {
+        if (!webrtcRef.current?.isConnected()) return;
         const vid = document.getElementById('stream-local-video') as HTMLVideoElement | null;
-        if (vid && vid.readyState >= 2 && vid.videoWidth > 0) {
+        const canv = document.getElementById('stream-local-canvas') as HTMLCanvasElement | null;
+        const source = vid && vid.readyState >= 2 && vid.videoWidth > 0 ? vid : canv;
+        if (source) {
           if (!canvas) {
             canvas = document.createElement('canvas');
             canvas.width = 240;
@@ -234,7 +280,7 @@ export default function App() {
           }
           const ctx = canvas.getContext('2d');
           if (ctx) {
-            ctx.drawImage(vid, 0, 0, 240, 180);
+            ctx.drawImage(source, 0, 0, 240, 180);
             const dataUrl = canvas.toDataURL('image/jpeg', 0.45);
             webrtcRef.current?.sendCctvFrame(dataUrl);
           }
@@ -406,21 +452,6 @@ export default function App() {
     startMatchmaking();
   };
 
-  const handleNsfwAutoBan = useCallback((reason: string, screenshot: string | null) => {
-    webrtcRef.current?.sendNsfwAutoBan(reason, screenshot);
-    setStatus('stopped');
-    setPartner(null);
-    setRemoteStream(null);
-    setMessages([
-      {
-        id: `nsfw-${Date.now()}`,
-        sender: 'system',
-        text: `🚫 ${reason} — Video blurred in 1s and Device Fingerprint reported to Admin CCTV.`,
-        time: formatMessageTime(),
-      },
-    ]);
-  }, []);
-
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -484,7 +515,6 @@ export default function App() {
               onToggleMic={() => setMicMuted((prev) => !prev)}
               onToggleVideo={() => setVideoMuted((prev) => !prev)}
               onStreamReady={handleLocalStreamReady}
-              onNsfwAutoBan={handleNsfwAutoBan}
               userName={userProfile?.name || defaultGuestName}
             />
           </div>
@@ -602,7 +632,7 @@ export default function App() {
         }}
         localStream={localStreamState}
         currentUserName={userProfile?.name || defaultGuestName}
-        myUserId={webrtcRef.current?.getMyUserId() || ''}
+        myUserId={myUserId || webrtcRef.current?.getMyUserId() || ''}
       />
 
       {/* 5. Google Search Engine & SEO Audit Modal */}
